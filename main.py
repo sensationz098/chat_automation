@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from rag import ask_rag
 
-from whatsapp import send_message
+# from whatsapp import send_message
 
 
 
