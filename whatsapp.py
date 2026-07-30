@@ -43,7 +43,7 @@ PHONE_ID = os.getenv("PHONE_NUMBER_ID")
 # v25.0 may not exist yet — use a confirmed current version.
 # Check developers.facebook.com/docs/graph-api/changelog for the latest
 # if you want to bump this later.
-GRAPH_API_VERSION = "v25.0"
+GRAPH_API_VERSION = "v26.0"
 
 
 def send_message(phone: str, message: str):
