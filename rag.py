@@ -11,10 +11,10 @@ from langchain_google_genai import (
 
 load_dotenv()
 
-# embeddings = GoogleGenerativeAIEmbeddings(
-#     model="models/gemini-embedding-2",
-#     google_api_key=os.getenv("GEMINI_API_KEY")
-# )
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/gemini-embedding-2",
+    google_api_key=os.getenv("GEMINI_API_KEY")
+)
 
 
 db = FAISS.load_local(
