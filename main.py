@@ -22,8 +22,9 @@ VERIFY_TOKEN = os.getenv(
 )
 
 
+
 @app.post("/webhook")
-async def webhook(request: Request):
+async def verify(request: Request):
     data = await request.json()
 
     print("Webhook received!")
