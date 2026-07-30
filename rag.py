@@ -39,37 +39,29 @@ llm = ChatGoogleGenerativeAI(
 
 
 def ask_rag(question):
+    try:
+        docs = retriever.invoke(question)
 
-    docs = retriever.invoke(question)
+        context = "\n\n".join([doc.page_content for doc in docs])
 
+        prompt = f"""
+        Context:
+        {context}
 
-    context = "\n\n".join(
-        [
-            doc.page_content
-            for doc in docs
-        ]
-    )
+        Question:
+        {question}
+        """
 
+        response = llm.invoke(prompt)
+        return response.content
 
-    prompt = f"""
+    except Exception as e:
+        error = str(e).lower()
 
-You are a company assistant.
+        if "quota" in error or "429" in error or "resource_exhausted" in error:
+            return (
+                "Sorry, the AI service has reached its daily usage limit. "
+                "Please try again later."
+            )
 
-Answer only using the context.
-
-Context:
-
-{context}
-
-
-Question:
-
-{question}
-
-"""
-
-
-    response = llm.invoke(prompt)
-
-
-    return response.content
+        return "Sorry, I'm unable to answer your question right now."

@@ -22,53 +22,39 @@ VERIFY_TOKEN = os.getenv(
 )
 
 
+@app.post("/webhook")
+async def webhook(request: Request):
+    data = await request.json()
 
-@app.get("/webhook")
-async def verify(
-    request: Request
-):
+    print("Webhook received!")
+    print(data)
 
-    params = request.query_params
+    try:
+        message = data["entry"][0]["changes"][0]["value"]["messages"][0]
 
+        user_phone = message["from"]
+        user_text = message["text"]["body"]
 
-    mode = params.get(
-        "hub.mode"
-    )
+        print("Phone:", user_phone)
+        print("Message:", user_text)
 
+        # Test without RAG
+        send_message(user_phone, "Hello from FastAPI!")
 
-    token = params.get(
-        "hub.verify_token"
-    )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
 
-
-    challenge = params.get(
-        "hub.challenge"
-    )
-
-
-    if (
-        mode=="subscribe"
-        and token==VERIFY_TOKEN
-    ):
-
-        return PlainTextResponse(
-            challenge
-        )
+    return {"status": "ok"}
 
 
-    return PlainTextResponse(
-        "failed",
-        status_code=403
-    )
+# @app.get("/webhook")
+# async def verify(request: Request):
+#     mode = request.query_params.get("hub.mode")
+#     token = request.query_params.get("hub.verify_token")
+#     challenge = request.query_params.get("hub.challenge")
 
+#     if mode == "subscribe" and token == VERIFY_TOKEN:
+#         return PlainTextResponse(challenge)
 
-@app.get("/webhook")
-async def verify(request: Request):
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
-
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        return PlainTextResponse(challenge)
-
-    return PlainTextResponse("Verification failed", status_code=403)
+#     return PlainTextResponse("Verification failed", status_code=403)
