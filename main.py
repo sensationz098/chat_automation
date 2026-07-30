@@ -62,48 +62,13 @@ async def verify(
     )
 
 
+@app.get("/webhook")
+async def verify(request: Request):
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
 
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return PlainTextResponse(challenge)
 
-
-@app.post("/webhook")
-async def webhook(
-    request: Request
-):
-
-    data = await request.json()
-
-
-    try:
-
-        message = (
-            data["entry"][0]
-            ["changes"][0]
-            ["value"]
-            ["messages"][0]
-        )
-
-
-        user_phone = message["from"]
-
-        user_text = message["text"]["body"]
-
-
-        answer = ask_rag(
-            user_text
-        )
-
-
-        send_message(
-            user_phone,
-            answer
-        )
-
-
-    except Exception as e:
-
-        print(e)
-
-
-    return {
-        "status":"ok"
-    }
+    return PlainTextResponse("Verification failed", status_code=403)
