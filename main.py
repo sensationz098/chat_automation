@@ -63,6 +63,7 @@
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
 
 import os
 
@@ -93,6 +94,41 @@ async def verify_webhook(
     if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
         return PlainTextResponse(content=hub_challenge, status_code=200)
     return PlainTextResponse(content="Verification failed", status_code=403)
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    """
+    Simple privacy policy page, required by Meta before an app can be
+    switched to Live mode. Replace the placeholder details below with
+    your actual company/contact info before using this for a real launch.
+    """
+    return """
+    <html>
+      <head><title>Privacy Policy - abc.com</title></head>
+      <body style="font-family: sans-serif; max-width: 700px; margin: 40px auto; line-height: 1.6;">
+        <h1>Privacy Policy</h1>
+        <p> https://sensationzperformingarts.com/ ("we", "us") operates a WhatsApp-based ordering
+        assistant. This policy explains what information we collect and
+        how we use it.</p>
+ 
+        <h2>Information We Collect</h2>
+        <p>When you message our WhatsApp number, we receive your phone
+        number and the content of your messages, in order to respond to
+        your requests, look up products, and process orders.</p>
+ 
+        <h2>How We Use Your Information</h2>
+        <p>We use this information solely to respond to your messages,
+        manage your cart and orders, and improve our service. We do not
+        sell your information to third parties.</p>
+ 
+        <h2>Data Retention</h2>
+        <p>Message and order data is retained only as long as necessary
+        to provide the service.</p>
+        
+      </body>
+    </html>
+    """
+
 
 
 @app.post("/webhook")
