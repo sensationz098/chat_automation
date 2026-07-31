@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 test_send.py
 log.py
+ngrok.exe
