@@ -1,76 +1,13 @@
-# from fastapi import FastAPI, Request
-# from fastapi.responses import PlainTextResponse
-
-# import os
-
-# from dotenv import load_dotenv
-
-# from rag import ask_rag
-
-# # from whatsapp import send_message
-
-
-
-# load_dotenv()
-
-
-# app = FastAPI()
-
-
-# VERIFY_TOKEN = os.getenv(
-#     "VERIFY_TOKEN"
-# )
-
-
-
-# @app.post("/webhook")
-# async def verify(request: Request):
-#     data = await request.json()
-
-#     print("Webhook received!")
-#     print(data)
-
-#     try:
-#         message = data["entry"][0]["changes"][0]["value"]["messages"][0]
-
-#         user_phone = message["from"]
-#         user_text = message["text"]["body"]
-
-#         print("Phone:", user_phone)
-#         print("Message:", user_text)
-
-#         # Test without RAG
-#         send_message(user_phone, "Hello from FastAPI!")
-
-#     except Exception as e:
-#         import traceback
-#         traceback.print_exc()
-
-#     return {"status": "ok"}
-
-
-# # @app.get("/webhook")
-# # async def verify(request: Request):
-# #     mode = request.query_params.get("hub.mode")
-# #     token = request.query_params.get("hub.verify_token")
-# #     challenge = request.query_params.get("hub.challenge")
-
-# #     if mode == "subscribe" and token == VERIFY_TOKEN:
-# #         return PlainTextResponse(challenge)
-
-# #     return PlainTextResponse("Verification failed", status_code=403)
-
-
-from fastapi import FastAPI, Request, Query
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, Request, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse, HTMLResponse
 
 import os
+import time
 
 from dotenv import load_dotenv
 
-from rag import ask_rag
-from whatsapp import send_message
+from rag import ask_rag, stream_rag
+from whatsapp import send_message, show_typing, send_button_message, send_call_button
 
 
 load_dotenv()
@@ -78,6 +15,50 @@ load_dotenv()
 app = FastAPI()
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+
+SUPPORT_NOTIFY_NUMBER = os.getenv("SUPPORT_NOTIFY_NUMBER")
+
+AGENT_CALL_NUMBER = os.getenv("AGENT_CALL_NUMBER")
+
+AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    """
+    Simple privacy policy page, required by Meta before an app can be
+    switched to Live mode. Replace the placeholder details below with
+    your actual company/contact info before using this for a real launch.
+    """
+    return """
+    <html>
+      <head><title>Privacy Policy - abc.com</title></head>
+      <body style="font-family: sans-serif; max-width: 700px; margin: 40px auto; line-height: 1.6;">
+        <h1>Privacy Policy</h1>
+        <p>abc.com ("we", "us") operates a WhatsApp-based ordering
+        assistant. This policy explains what information we collect and
+        how we use it.</p>
+
+        <h2>Information We Collect</h2>
+        <p>When you message our WhatsApp number, we receive your phone
+        number and the content of your messages, in order to respond to
+        your requests, look up products, and process orders.</p>
+
+        <h2>How We Use Your Information</h2>
+        <p>We use this information solely to respond to your messages,
+        manage your cart and orders, and improve our service. We do not
+        sell your information to third parties.</p>
+
+        <h2>Data Retention</h2>
+        <p>Message and order data is retained only as long as necessary
+        to provide the service.</p>
+
+        <h2>Contact</h2>
+        <p>For questions about this policy, contact us at
+        support@abc.com.</p>
+      </body>
+    </html>
+    """
 
 
 @app.get("/webhook")
@@ -95,44 +76,9 @@ async def verify_webhook(
         return PlainTextResponse(content=hub_challenge, status_code=200)
     return PlainTextResponse(content="Verification failed", status_code=403)
 
-@app.get("/privacy", response_class=HTMLResponse)
-async def privacy_policy():
-    """
-    Simple privacy policy page, required by Meta before an app can be
-    switched to Live mode. Replace the placeholder details below with
-    your actual company/contact info before using this for a real launch.
-    """
-    return """
-    <html>
-      <head><title>Privacy Policy - abc.com</title></head>
-      <body style="font-family: sans-serif; max-width: 700px; margin: 40px auto; line-height: 1.6;">
-        <h1>Privacy Policy</h1>
-        <p> https://sensationzperformingarts.com/ ("we", "us") operates a WhatsApp-based ordering
-        assistant. This policy explains what information we collect and
-        how we use it.</p>
- 
-        <h2>Information We Collect</h2>
-        <p>When you message our WhatsApp number, we receive your phone
-        number and the content of your messages, in order to respond to
-        your requests, look up products, and process orders.</p>
- 
-        <h2>How We Use Your Information</h2>
-        <p>We use this information solely to respond to your messages,
-        manage your cart and orders, and improve our service. We do not
-        sell your information to third parties.</p>
- 
-        <h2>Data Retention</h2>
-        <p>Message and order data is retained only as long as necessary
-        to provide the service.</p>
-        
-      </body>
-    </html>
-    """
-
-
 
 @app.post("/webhook")
-async def receive_message(request: Request):
+async def receive_message(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
 
     print("Webhook received!")
@@ -142,25 +88,84 @@ async def receive_message(request: Request):
         message = data["entry"][0]["changes"][0]["value"]["messages"][0]
 
         user_phone = message["from"]
-        user_text = message["text"]["body"]
+        message_id = message["id"]
+        msg_type = message.get("type")
 
-        print("Phone:", user_phone)
-        print("Message:", user_text)
-
-        # Try the RAG pipeline; if anything about it fails (index not
-        # built yet, quota hit, etc.) fall back to a plain reply instead
-        # of silently never responding.
-        try:
-            reply_text = ask_rag(user_text)
-        except Exception:
-            import traceback
-            traceback.print_exc()
-            reply_text = "Hello from FastAPI! (RAG unavailable right now)"
-
-        send_message(user_phone, reply_text)
+        if msg_type == "interactive":
+            button_id = message["interactive"]["button_reply"]["id"]
+            print("Phone:", user_phone, "| Button tapped:", button_id)
+            background_tasks.add_task(handle_button_tap, user_phone, button_id, message_id)
+        else:
+            user_text = message["text"]["body"]
+            print("Phone:", user_phone, "| Message:", user_text)
+            background_tasks.add_task(process_message, user_phone, user_text, message_id)
 
     except Exception:
         import traceback
         traceback.print_exc()
 
     return {"status": "ok"}
+
+
+def handle_button_tap(user_phone: str, button_id: str, message_id: str):
+    show_typing(message_id)
+
+    if button_id == "talk_agent":
+        if AGENT_CALL_NUMBER:
+            send_call_button(
+                user_phone,
+                "No problem! You can call our support team directly by tapping below, "
+                "or someone will also message you here shortly.",
+                "Call Now",
+                AGENT_CALL_NUMBER,
+            )
+        else:
+            send_message(
+                user_phone,
+                "No problem — I've notified a member of our team. "
+                "Someone will message you here shortly!"
+            )
+        if SUPPORT_NOTIFY_NUMBER:
+            send_message(
+                SUPPORT_NOTIFY_NUMBER,
+                f"Customer {user_phone} has requested to speak with an agent."
+            )
+    else:
+        send_message(user_phone, "Got it! Let me know what you're looking for.")
+
+
+def process_message(user_phone: str, user_text: str, message_id: str):
+    """
+    Runs in the background, after the webhook has already returned.
+    Any failure here won't affect Meta's view of your webhook at all.
+    """
+    try:
+        show_typing(message_id)
+
+        if any(word in user_text.lower() for word in AGENT_TRIGGER_WORDS):
+            send_button_message(
+                user_phone,
+                "Would you like to talk to a human agent?",
+                [("talk_agent", "Talk to Agent"), ("continue_bot", "Continue with Bot")]
+            )
+            return
+
+        try:
+            chunk_count = 0
+            for chunk_text in stream_rag(user_text):
+                # Small pause before each bubble so it reads like someone
+                # typing separate messages, not a burst-fire spam of texts.
+                if chunk_count > 0:
+                    time.sleep(min(0.8 + len(chunk_text) / 150, 2.5))
+                    show_typing(message_id)
+                send_message(user_phone, chunk_text)
+                chunk_count += 1
+
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            send_message(user_phone, "Hello from FastAPI! (RAG unavailable right now)")
+
+    except Exception:
+        import traceback
+        traceback.print_exc()
