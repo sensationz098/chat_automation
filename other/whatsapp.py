@@ -9,12 +9,6 @@ PHONE_ID = os.getenv("PHONE_NUMBER_ID")
 GRAPH_API_VERSION = "v23.0"
 
 def show_typing(message_id: str):
-    """
-    Marks the incoming message as read (blue checkmarks) AND shows the
-    'typing...' indicator to the user. Call this as soon as you receive
-    a message, before you start generating the reply.
-    Lasts up to ~25 seconds or until you send a message, whichever first.
-    """
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_ID}/messages"
     headers = {
         "Authorization": f"Bearer {TOKEN}",

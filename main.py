@@ -1,171 +1,158 @@
-from fastapi import FastAPI, Request, Query, BackgroundTasks
-from fastapi.responses import PlainTextResponse, HTMLResponse
+"""
+main.py — the FastAPI app and message-handling flow. Talks to Interakt
+only through interakt.py, never directly, so this file stays focused
+on DECISIONS (what to do with a message) rather than API mechanics.
+"""
 
 import os
-import time
-
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from rag import ask_rag, stream_rag
-from whatsapp import send_message, show_typing, send_button_message, send_call_button
-
+from interakt import (
+    send_text_message,
+    send_image_message,
+    assign_chat_to_agent,
+    verify_webhook_signature,
+)
+from csv_logger import log_message
+from chat_history import save_message, get_recent_history, get_full_history_for_agent
+from rag import stream_rag
+from chat_state import mark_escalated, is_escalated
 
 load_dotenv()
 
 app = FastAPI()
 
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # fine for local testing; restrict before real production use
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-SUPPORT_NOTIFY_NUMBER = os.getenv("SUPPORT_NOTIFY_NUMBER")
+# --- Config -------------------------------------------------------
+ALLOWED_TEST_NUMBERS = os.getenv("ALLOWED_TEST_NUMBERS")
 
-AGENT_CALL_NUMBER = os.getenv("AGENT_CALL_NUMBER")
+# Every message gets assigned to this agent by default.
+PRIORITY_AGENT_EMAIL = os.getenv("PRIORITY_AGENT_EMAIL")
+
+# If the customer explicitly asks for a human, the chat is RE-assigned
+# to this agent instead, and the AI reply is skipped.
+PRIORITY_AGENT_EMAIL_ANOTHER = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER")
 
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 
+# PAYMENT_TRIGGER_WORDS = ["pay", "payment", "qr", "upi", "how to pay", "send qr", "payment link", "checkout"]
+PAYMENT_QR_IMAGE_URL = os.getenv("PAYMENT_QR_IMAGE_URL")
+PAYMENT_CAPTION = """Bank details:\n Sensationz media and arts pvt ltd \n Ac no 051863300000382"""
 
-@app.get("/privacy", response_class=HTMLResponse)
-async def privacy_policy():
-    """
-    Simple privacy policy page, required by Meta before an app can be
-    switched to Live mode. Replace the placeholder details below with
-    your actual company/contact info before using this for a real launch.
-    """
-    return """
-    <html>
-      <head><title>Privacy Policy - abc.com</title></head>
-      <body style="font-family: sans-serif; max-width: 700px; margin: 40px auto; line-height: 1.6;">
-        <h1>Privacy Policy</h1>
-        <p>abc.com ("we", "us") operates a WhatsApp-based ordering
-        assistant. This policy explains what information we collect and
-        how we use it.</p>
+# --- Endpoints ------------------------------------------------------
 
-        <h2>Information We Collect</h2>
-        <p>When you message our WhatsApp number, we receive your phone
-        number and the content of your messages, in order to respond to
-        your requests, look up products, and process orders.</p>
-
-        <h2>How We Use Your Information</h2>
-        <p>We use this information solely to respond to your messages,
-        manage your cart and orders, and improve our service. We do not
-        sell your information to third parties.</p>
-
-        <h2>Data Retention</h2>
-        <p>Message and order data is retained only as long as necessary
-        to provide the service.</p>
-
-        <h2>Contact</h2>
-        <p>For questions about this policy, contact us at
-        support@abc.com.</p>
-      </body>
-    </html>
-    """
-
-
-@app.get("/webhook")
-async def verify_webhook(
-    hub_mode: str = Query(alias="hub.mode", default=None),
-    hub_challenge: str = Query(alias="hub.challenge", default=None),
-    hub_verify_token: str = Query(alias="hub.verify_token", default=None),
-):
-    """
-    Meta calls this once when you click 'Verify and Save' in the
-    Configuration tab. Without this route, webhook verification
-    fails with no useful error message.
-    """
-    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
-        return PlainTextResponse(content=hub_challenge, status_code=200)
-    return PlainTextResponse(content="Verification failed", status_code=403)
+@app.get("/chat-history/{phone}")
+async def view_chat_history(phone: str):
+    """GET /chat-history/919876543210 — full conversation for a customer."""
+    return get_full_history_for_agent(phone)
 
 
 @app.post("/webhook")
-async def receive_message(request: Request, background_tasks: BackgroundTasks):
+async def receive_interakt_webhook(request: Request):
+    raw_body = await request.body()
     data = await request.json()
 
-    print("Webhook received!")
-    print(data)
+    signature = request.headers.get("Interakt-Signature", "")
+    if not verify_webhook_signature(raw_body, signature):
+        print("Signature verification FAILED — ignoring request.")
+        return {"status": "invalid signature"}
 
-    try:
-        message = data["entry"][0]["changes"][0]["value"]["messages"][0]
+    event_type = data.get("type")
+    print("Event type:", event_type)
 
-        user_phone = message["from"]
-        message_id = message["id"]
-        msg_type = message.get("type")
+    if event_type != "message_received":
+        return {"status": "ignored, not a new message"}
 
-        if msg_type == "interactive":
-            button_id = message["interactive"]["button_reply"]["id"]
-            print("Phone:", user_phone, "| Button tapped:", button_id)
-            background_tasks.add_task(handle_button_tap, user_phone, button_id, message_id)
-        else:
-            user_text = message["text"]["body"]
-            print("Phone:", user_phone, "| Message:", user_text)
-            background_tasks.add_task(process_message, user_phone, user_text, message_id)
+    customer = data["data"]["customer"]
+    message = data["data"]["message"]
+    phone = customer["channel_phone_number"]
+    text = message.get("message", "")
 
-    except Exception:
-        import traceback
-        traceback.print_exc()
+    print(f"Message from {phone}: {text}")
+    log_message(phone, "user", text)
+    if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453":
+        print(f"Ignoring message from {phone} — not the allowed test number.")
+        return {"status": "ignored, not test number"}
 
+    save_message(phone, "user", text)
+    log_message(phone, "user", text)
+
+    # If this chat was already escalated to a human, the bot stops
+    # touching it entirely from here on.
+    if is_escalated(phone):
+        print(f"{phone} is already escalated — bot staying out of it.")
+        return {"status": "escalated, bot not responding"}
+    
+    if PRIORITY_AGENT_EMAIL:
+        assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL)
+
+    text_lower = text.lower()
+
+    # --- Intent 1: explicit human handoff -----------------------
+    if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
+        return handle_agent_handoff(phone)
+
+    # --- Intent 2: payment -----------------------------------------
+    # if any(word in text_lower for word in PAYMENT_TRIGGER_WORDS):
+    #     return handle_payment_intent(phone)
+
+    # --- Default: AI reply, with conversation memory ----------------
+    return handle_ai_reply(phone, text)
+
+
+# --- Intent handlers --------------------------------------------------
+
+def handle_agent_handoff(phone: str):
+    print(f"Agent requested by {phone} — re-assigning to escalation agent...")
+
+    reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
+
+    if PRIORITY_AGENT_EMAIL_ANOTHER:
+        assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL_ANOTHER)
+        send_text_message(phone, reply)
+        mark_escalated(phone)
+        log_message(phone, "agent", reply)
+    else:
+        reply = (
+            "Our team is currently offline, but we've noted your request "
+            "and someone will reach out as soon as they're back online."
+        )
+        send_text_message(phone, reply)
+
+    save_message(phone, "assistant", reply)
+    return {"status": "handed off to agent"}
+
+
+# def handle_payment_intent(phone: str):
+#     print(f"Payment intent detected from {phone} — sending QR code.")
+
+#     if not PAYMENT_QR_IMAGE_URL:
+#         reply = "You can complete payment at checkout — let me know if you'd like help with anything else!"
+#         send_text_message(phone, reply)
+#         save_message(phone, "assistant", reply)
+#         return {"status": "payment intent, no QR configured"}
+
+#     send_image_message(phone, PAYMENT_QR_IMAGE_URL, PAYMENT_CAPTION)
+#     save_message(phone, "assistant", f"[sent payment QR image] {PAYMENT_CAPTION}")
+    return {"status": "payment QR sent"}
+
+
+def handle_ai_reply(phone: str, text: str):
+    history = get_recent_history(phone)
+
+    full_answer_parts = []
+    for chunk_text in stream_rag(text, chat_history=history):
+        send_text_message(phone, chunk_text)
+        full_answer_parts.append(chunk_text)
+
+    save_message(phone, "assistant", " ".join(full_answer_parts))
     return {"status": "ok"}
 
-
-def handle_button_tap(user_phone: str, button_id: str, message_id: str):
-    show_typing(message_id)
-
-    if button_id == "talk_agent":
-        if AGENT_CALL_NUMBER:
-            send_call_button(
-                user_phone,
-                "No problem! You can call our support team directly by tapping below, "
-                "or someone will also message you here shortly.",
-                "Call Now",
-                AGENT_CALL_NUMBER,
-            )
-        else:
-            send_message(
-                user_phone,
-                "No problem — I've notified a member of our team. "
-                "Someone will message you here shortly!"
-            )
-        if SUPPORT_NOTIFY_NUMBER:
-            send_message(
-                SUPPORT_NOTIFY_NUMBER,
-                f"Customer {user_phone} has requested to speak with an agent."
-            )
-    else:
-        send_message(user_phone, "Got it! Let me know what you're looking for.")
-
-
-def process_message(user_phone: str, user_text: str, message_id: str):
-    """
-    Runs in the background, after the webhook has already returned.
-    Any failure here won't affect Meta's view of your webhook at all.
-    """
-    try:
-        show_typing(message_id)
-
-        if any(word in user_text.lower() for word in AGENT_TRIGGER_WORDS):
-            send_button_message(
-                user_phone,
-                "Would you like to talk to a human agent?",
-                [("talk_agent", "Talk to Agent"), ("continue_bot", "Continue with Bot")]
-            )
-            return
-
-        try:
-            chunk_count = 0
-            for chunk_text in stream_rag(user_text):
-                # Small pause before each bubble so it reads like someone
-                # typing separate messages, not a burst-fire spam of texts.
-                if chunk_count > 0:
-                    time.sleep(min(0.8 + len(chunk_text) / 150, 2.5))
-                    show_typing(message_id)
-                send_message(user_phone, chunk_text)
-                chunk_count += 1
-
-        except Exception:
-            import traceback
-            traceback.print_exc()
-            send_message(user_phone, "Hello from FastAPI! (RAG unavailable right now)")
-
-    except Exception:
-        import traceback
-        traceback.print_exc()

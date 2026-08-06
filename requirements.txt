@@ -9,3 +9,6 @@ langchain-google-genai
 
 faiss-cpu
 pypdf
+
+supabase
+httpx
