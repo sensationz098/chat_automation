@@ -47,9 +47,7 @@ llm = ChatOpenAI(
     temperature=0
 )
 
-from prompt import format_system_prompt
-
-SYSTEM_PROMPT = format_system_prompt({"stage": "NEW"})
+SYSTEM_PROMPT = SYSTEM_PROMPT
 
 def _build_history_messages(chat_history: list = None):
     """
@@ -61,9 +59,7 @@ def _build_history_messages(chat_history: list = None):
         return []
 
     messages = []
-    # Cap history to recent 10 turns for sharp focus
-    recent_turns = chat_history[-10:] if len(chat_history) > 10 else chat_history
-    for turn in recent_turns:
+    for turn in chat_history:
         if turn["role"] == "user":
             messages.append(HumanMessage(content=turn["content"]))
         elif turn["role"] == "assistant":
@@ -71,21 +67,32 @@ def _build_history_messages(chat_history: list = None):
     return messages
 
 
-def _is_transactional_input(text: str) -> bool:
+def split_into_chunks(text: str, min_len: int = 15) -> list:
     """
-    Checks if user input is a pure procedural choice/confirmation rather
-    than a complex question. Skip heavy RAG search for procedural steps.
+    Splits a full answer into natural "message bubble" pieces at
+    sentence boundaries — the same splitting behavior stream_rag uses
+    live, but usable on any already-complete string. This is what makes
+    a cached answer split into the same multi-message reply style as a
+    freshly generated one, instead of arriving as one big block.
     """
-    txt = text.lower().strip()
-    procedural_triggers = [
-        "yes", "yeah", "yep", "sure", "ok", "okay", "hi", "hii", "hello", "hey",
-        "morning", "evening", "afternoon", "6-7am", "7-8am", "8-9am", "10-11am",
-        "12-1pm", "4-5pm", "5-6pm", "6-7pm", "7-8pm", "1 month", "3 months", "6 months",
-        "1 year", "fees", "fee", "package", "installed", "downloaded", "done"
-    ]
-    return txt in procedural_triggers or len(txt) <= 12
+    chunks = []
+    buffer = text.strip()
 
+    while buffer:
+        cut = None
+        for stop in [". ", "! ", "? ", "\n"]:
+            idx = buffer.find(stop)
+            if idx != -1 and (cut is None or idx < cut):
+                cut = idx + len(stop)
 
+        if cut and cut < len(buffer) and len(buffer[:cut].strip()) >= min_len:
+            chunks.append(buffer[:cut].strip())
+            buffer = buffer[cut:]
+        else:
+            chunks.append(buffer.strip())
+            break
+
+    return chunks if chunks else [text.strip()]
 def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     """
     Short replies like 'yes', 'morning', '8 9' carry almost no signal
@@ -95,67 +102,110 @@ def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     if not chat_history:
         return question
 
-    recent = chat_history[-4:]
+    recent = chat_history[-4:]  # last couple of exchanges
     context_str = " ".join(turn["content"] for turn in recent)
     return f"{context_str} {question}"
 
+def ask_rag(question: str, chat_history: list = None) -> str:
+    if retriever is None:
+        return (
+            "Sorry, my product knowledge base isn't set up yet. "
+            "Ask me something else in the meantime!"
+        )
 
-
-def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str:
     try:
-        sys_prompt_content = format_system_prompt(state or {"stage": "NEW"})
-        context = ""
-        
-        if retriever is not None and not _is_transactional_input(question):
-            retrieval_query = _build_retrieval_query(question, chat_history)
-            docs = retriever.invoke(retrieval_query)
-            context = "\n\n".join([doc.page_content for doc in docs])
+        retrieval_query = _build_retrieval_query(question, chat_history)
+        docs = retriever.invoke(retrieval_query)
+        context = "\n\n".join([doc.page_content for doc in docs])
 
-        messages = [SystemMessage(content=sys_prompt_content)]
+        messages = [SystemMessage(content=SYSTEM_PROMPT)]
         messages.extend(_build_history_messages(chat_history))
-        
-        user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
-        messages.append(HumanMessage(content=user_msg))
+        messages.append(HumanMessage(content=f"Context:\n{context}\n\nCustomer's message: {question}"))
 
         response = llm.invoke(messages)
         return response.content
 
     except Exception as e:
         error = str(e).lower()
+
         if "quota" in error or "429" in error or "resource_exhausted" in error:
-            return "Sorry, the AI service has reached its usage limit. Please try again later."
+            return (
+                "Sorry, the AI service has reached its daily usage limit. "
+                "Please try again later."
+            )
+
         print(f"[rag.py] ask_rag error: {e}")
-        return "Sorry, I'm unable to process your request right now."
+        return "Sorry, I'm unable to answer your question right now."
 
 
-def stream_rag(question: str, chat_history: list = None, state: dict = None):
+def stream_rag(question: str, chat_history: list = None):
+    """
+    Generator version of ask_rag — yields text chunks as the model
+    generates them, instead of waiting for the whole reply.
+
+    chat_history: optional list of {"role": "user"/"assistant",
+    "content": "..."} dicts, oldest first — lets the model understand
+    follow-up messages instead of treating each question in isolation.
+
+    Note: WhatsApp can't edit an already-sent message, so this can't
+    "type live" into one bubble like a chat UI. What it CAN do is let
+    the caller send each chunk as its own WhatsApp message, arriving in
+    quick succession — which reads like a real person sending a couple
+    of short messages in a row, rather than one long paragraph block.
+    """
+    if retriever is None:
+        yield (
+            "Sorry, my product knowledge base isn't set up yet. "
+            "Ask me something else in the meantime!"
+        )
+        return
+
     try:
-        sys_prompt_content = format_system_prompt(state or {"stage": "NEW"})
-        context = ""
-        
-        if retriever is not None and not _is_transactional_input(question):
-            retrieval_query = _build_retrieval_query(question, chat_history)
-            docs = retriever.invoke(retrieval_query)
-            context = "\n\n".join([doc.page_content for doc in docs])
+        retrieval_query = _build_retrieval_query(question, chat_history)
+        docs = retriever.invoke(retrieval_query)
+        context = "\n\n".join([doc.page_content for doc in docs])
 
-        messages = [SystemMessage(content=sys_prompt_content)]
+        messages = [SystemMessage(content=SYSTEM_PROMPT)]
         messages.extend(_build_history_messages(chat_history))
+        messages.append(HumanMessage(content=f"Context:\n{context}\n\nCustomer's message: {question}"))
 
-        user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
-        messages.append(HumanMessage(content=user_msg))
+        buffer = ""
+        for chunk in llm.stream(messages):
+            piece = chunk.content or ""
+            if not piece:
+                continue
+            buffer += piece
 
-        response = llm.invoke(messages)
-        answer = response.content.strip()
-        
-        # Yield the clean, full answer as a single structured bubble
-        if answer:
-            yield answer
+            # Flush the buffer as a "message bubble" whenever we hit a
+            # natural break (sentence end, or newline) and it's long
+            # enough to be worth sending on its own. (Can't reuse
+            # split_into_chunks here — it assumes the full text is
+            # already known, which isn't true mid-stream.)
+            while True:
+                cut = None
+                for stop in [". ", "! ", "? ", "\n"]:
+                    idx = buffer.find(stop)
+                    if idx != -1 and (cut is None or idx < cut):
+                        cut = idx + len(stop)
+                if cut and cut < len(buffer) and len(buffer[:cut].strip()) >= 15:
+                    yield buffer[:cut].strip()
+                    buffer = buffer[cut:]
+                else:
+                    break
+
+        if buffer.strip():
+            yield buffer.strip()
 
     except Exception as e:
         error = str(e).lower()
+
         if "quota" in error or "429" in error or "resource_exhausted" in error:
-            yield "Sorry, the AI service has reached its daily usage limit. Please try again later."
+            yield (
+                "Sorry, the AI service has reached its daily usage limit. "
+                "Please try again later."
+            )
             return
+
         print(f"[rag.py] stream_rag error: {e}")
         yield "Sorry, I'm unable to answer your question right now."
 
