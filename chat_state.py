@@ -1,10 +1,18 @@
+"""
+chat_state.py — Session state management & funnel stage tracking per unique user.
+Stores slot values (batch timing, selected package, app installation, profile status)
+and ensures each unique phone number maintains its own isolated conversation state.
+"""
+
 import os
 import re
 from dotenv import load_dotenv
 from supabase import create_client
 
+# Load environment variables (.env file)
 load_dotenv()
 
+# Initialize optional Supabase database client for persistent cloud state
 supabase = None
 try:
     url = os.getenv("SUPABASE_URL")
@@ -14,25 +22,32 @@ try:
 except Exception as e:
     print(f"[chat_state] Supabase init error: {e}")
 
-# In-memory session store for fast fallback and resilient state management
+# In-memory session dictionary: maps unique phone number -> user state dictionary
 _memory_sessions: dict[str, dict] = {}
 
 
 def mark_escalated(phone: str):
-    """Marks this phone as handed off to a human — bot stops replying to it."""
+    """
+    Marks a user's phone number as escalated to a human agent so the AI bot stops automated replies.
+    """
     if supabase:
         try:
+            # Upsert into database table 'escalated_chats'
             supabase.table("escalated_chats").upsert({"phone": phone}).execute()
         except Exception as e:
             print(f"[chat_state] mark_escalated DB error: {e}")
-    # Also track in memory
+    # Also update state in memory session cache
     state = get_user_state(phone)
     state["is_escalated"] = True
 
 
 def is_escalated(phone: str) -> bool:
+    """
+    Checks whether a specific phone number has been escalated to a human agent.
+    """
     if supabase:
         try:
+            # Query Supabase table for escalation status
             result = (
                 supabase.table("escalated_chats")
                 .select("phone")
@@ -45,13 +60,18 @@ def is_escalated(phone: str) -> bool:
         except Exception as e:
             print(f"[chat_state] is_escalated DB error: {e}")
     
+    # Fallback to checking in-memory session state
     state = get_user_state(phone)
     return state.get("is_escalated", False)
 
 
 def clear_escalation(phone: str):
+    """
+    Removes human agent escalation for a phone number so the bot can resume automated replies.
+    """
     if supabase:
         try:
+            # Remove row from Supabase escalated_chats table
             supabase.table("escalated_chats").delete().eq("phone", phone).execute()
         except Exception as e:
             print(f"[chat_state] clear_escalation DB error: {e}")
@@ -59,60 +79,95 @@ def clear_escalation(phone: str):
     state["is_escalated"] = False
 
 
-# --- Session State Management ---
+# =============================================================================
+# SESSION STATE MANAGEMENT FUNCTIONS
+# =============================================================================
 
 def get_default_state(phone: str) -> dict:
+    """
+    Returns the initial default session state dictionary for a new phone number.
+    Ensures new users start fresh with stage 'NEW' and no default timing or package selected.
+    """
     return {
-        "phone": phone,
-        "stage": "NEW",  # NEW, TIMING_SELECTED, PACKAGE_SELECTED, READY_FOR_APP_LINK, APP_LINK_SENT, PROFILE_COMPLETED, COUPON_SENT
-        "timing": None,
-        "package": None,
-        "fee": None,
-        "app_installed": False,
-        "profile_created": False,
-        "coupon_sent": False,
-        "is_escalated": False
+        "phone": phone,               # Customer's unique phone number key
+        "stage": "NEW",               # Funnel stage: NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED -> PACKAGE_SELECTED -> READY_FOR_APP_LINK -> APP_LINK_SENT -> PROFILE_COMPLETED -> COUPON_SENT
+        "timing": None,               # Selected batch timing string (e.g. "7:00–8:00 AM")
+        "package": None,              # Selected package string (e.g. "3 Months")
+        "fee": None,                  # Package fee string (e.g. "₹1,750")
+        "app_installed": False,       # Boolean flag indicating if user installed the Sensationz App
+        "profile_created": False,     # Boolean flag indicating if user created an in-app profile
+        "coupon_sent": False,         # Boolean flag indicating if welcome coupon code was delivered
+        "is_escalated": False         # Escalation flag to hand off to human agent
     }
 
 
 def get_user_state(phone: str) -> dict:
+    """
+    Retrieves the active session state dictionary for a specific phone number.
+    Uses in-memory cache first, falling back to Supabase database.
+    """
+    # 1. Return in-memory cached state if present for fast performance
     if phone in _memory_sessions:
         return _memory_sessions[phone]
 
+    # 2. Otherwise initialize default new user state
     state = get_default_state(phone)
     if supabase:
         try:
+            # Attempt fetching existing state from cloud Supabase table
             res = supabase.table("user_session_state").select("*").eq("phone", phone).limit(1).execute()
             if res.data and len(res.data) > 0:
                 data = res.data[0]
                 state.update(data)
         except Exception as e:
-            # Table might not exist yet; gracefully fallback to memory
+            # Graceful fallback to default in-memory state if table isn't created yet
             pass
 
+    # Store state in memory dictionary under customer's unique phone number key
     _memory_sessions[phone] = state
     return state
 
 
 def save_user_state(phone: str, state: dict):
+    """
+    Persists updated session state dictionary for a specific phone number.
+    """
+    # Update in-memory session dictionary
     _memory_sessions[phone] = state
     if supabase:
         try:
+            # Upsert into Supabase database table
             supabase.table("user_session_state").upsert(state).execute()
         except Exception as e:
-            # Silently fallback to in-memory if DB table not set up
+            # Silently fallback to in-memory store if DB is unreachable
             pass
 
 
 def is_user_asking_question(text: str) -> bool:
     """
-    Returns True if user input is an informational question rather than
-    a simple procedural step.
+    Determines whether a user input message is an informational question
+    (e.g. asking about video links, pricing, syllabus, faculty, or demo sessions)
+    rather than a simple procedural step selection or initial greeting.
     """
     txt = text.lower().strip()
+    
+    # Question marks explicitly signal an informational question
     if "?" in txt:
         return True
     
+    # Simple greetings or initial "yoga" mentions are NOT questions
+    if txt in ["hi", "hii", "hello", "hey", "yoga", "yog", "online yoga", "yoga classes", "namaste"]:
+        return False
+
+    # Priority keywords for class video/demo requests (triggers question mode even for short phrases)
+    video_keywords = [
+        "video", "videos", "demo", "recording", "recordings",
+        "sample", "watch", "link", "trial", "youtube"
+    ]
+    if any(vk in txt for vk in video_keywords):
+        return True
+    
+    # General informational question keywords
     question_keywords = [
         "who", "what", "where", "how", "why", "which", "when",
         "kitne", "kitna", "kya", "kaun", "kaunsa", "kaunsi", "kaise",
@@ -122,7 +177,8 @@ def is_user_asking_question(text: str) -> bool:
     ]
     
     words = txt.split()
-    if len(words) >= 3 and any(kw in txt for kw in question_keywords):
+    # If text contains general question keywords with 2 or more words
+    if len(words) >= 2 and any(kw in txt for kw in question_keywords):
         return True
         
     return False
@@ -130,14 +186,30 @@ def is_user_asking_question(text: str) -> bool:
 
 def extract_and_update_slots(phone: str, text: str) -> dict:
     """
-    Analyzes incoming user message and updates slot values & funnel stage.
+    Analyzes incoming user message, extracts batch timing or package selection,
+    and updates funnel stage (NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED...).
     """
+    # Retrieve current session state for this phone number
     state = get_user_state(phone)
     text_lower = text.lower().strip()
     is_q = is_user_asking_question(text)
 
+    # Keywords for initial contact vs confirmation vs slots
+    is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
+    is_yoga_keyword = any(w in text_lower for w in ["yoga", "yog", "yaga", "yogi", "yoga classes", "online yoga", "yoga details", "yoga course"])
+    is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan"])
+
+    # Stage 0: Initial Greeting & Enrollment Confirmation Check
+    if state["stage"] == "NEW":
+        if is_confirmation and not is_q:
+            state["stage"] = "ENROLL_CONFIRMED"
+        elif is_greeting or is_yoga_keyword:
+            state["stage"] = "ENROLL_ASKED"
+    elif state["stage"] == "ENROLL_ASKED":
+        if is_confirmation and not is_q:
+            state["stage"] = "ENROLL_CONFIRMED"
+
     # --- 1. Detect Batch Timing Slot ---
-    # Allow user input to set/update timing dynamically
     if any(t in text_lower for t in ["10-11am", "10-11 am", "10 to 11", "10:00", "10 am", "10am"]):
         state["timing"] = "10:00–11:00 AM"
     elif any(t in text_lower for t in ["12-1pm", "12-1 pm", "12 to 1", "12:00", "12 pm", "12pm"]):
@@ -184,14 +256,14 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
     # --- 3. Determine Stage Transition ---
     if state["timing"] and state["package"]:
         if not state["profile_created"] and not is_q:
-            if state["stage"] in ["NEW", "TIMING_SELECTED", "PACKAGE_SELECTED", "APP_LINK_SENT"]:
+            if state["stage"] in ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED", "TIMING_SELECTED", "PACKAGE_SELECTED", "APP_LINK_SENT"]:
                 if any(w in text_lower for w in ["yes", "enroll", "join", "confirm", "proceed", "link", "app", "ok", "sure"]) or state["stage"] != "APP_LINK_SENT":
                     state["stage"] = "READY_FOR_APP_LINK"
     elif state["timing"] and not state["package"]:
-        if state["stage"] == "NEW":
+        if state["stage"] in ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED"]:
             state["stage"] = "TIMING_SELECTED"
     elif state["package"] and not state["timing"]:
-        if state["stage"] == "NEW":
+        if state["stage"] in ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED"]:
             state["stage"] = "PACKAGE_SELECTED"
 
     # --- 4. Detect App Install & Profile Completion ---
@@ -203,5 +275,6 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
         elif any(w in text_lower for w in ["installed", "downloaded", "done app", "app done"]) and not state["profile_created"]:
             state["app_installed"] = True
 
+    # Persist updated session state
     save_user_state(phone, state)
-    return state
+    return state

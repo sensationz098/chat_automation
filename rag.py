@@ -71,52 +71,76 @@ def _build_history_messages(chat_history: list = None):
     return messages
 
 
+# =============================================================================
+# TRANSACTIONAL INPUT & RETRIEVAL QUERY HELPERS
+# =============================================================================
+
 def _is_transactional_input(text: str) -> bool:
     """
     Checks if user input is a pure procedural choice/confirmation rather
-    than a complex question. Skip heavy RAG search for procedural steps.
+    than an informational question or video link request.
+    Prevents bypassing RAG retrieval when users ask for video links or demo classes.
     """
     txt = text.lower().strip()
+    
+    # Priority keywords for video/demo requests and informational queries (NEVER skip RAG for these)
+    info_keywords = [
+        "video", "videos", "demo", "recording", "recordings",
+        "sample", "watch", "trial", "link", "youtube", "teacher",
+        "syllabus", "fees", "fee", "cost", "price"
+    ]
+    if any(kw in txt for kw in info_keywords):
+        return False  # Force RAG vector search to run
+        
+    # List of simple procedural trigger words (e.g., timing selection or simple greetings)
     procedural_triggers = [
         "yes", "yeah", "yep", "sure", "ok", "okay", "hi", "hii", "hello", "hey",
         "morning", "evening", "afternoon", "6-7am", "7-8am", "8-9am", "10-11am",
         "12-1pm", "4-5pm", "5-6pm", "6-7pm", "7-8pm", "1 month", "3 months", "6 months",
-        "1 year", "fees", "fee", "package", "installed", "downloaded", "done"
+        "1 year", "installed", "downloaded", "done"
     ]
-    return txt in procedural_triggers or len(txt) <= 12
+    # Return True ONLY if text exactly matches a simple procedural trigger word
+    return txt in procedural_triggers
 
 
 def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     """
-    Short replies like 'yes', 'morning', '8 9' carry almost no signal
-    for vector search on their own. Prepend the last couple of turns
-    so the retriever has enough context to find the right chunk.
+    Combines recent chat conversation history with the incoming question
+    to give the vector retriever full context for semantic search.
     """
     if not chat_history:
         return question
 
+    # Extract last 4 turns of chat history to build context window
     recent = chat_history[-4:]
     context_str = " ".join(turn["content"] for turn in recent)
     return f"{context_str} {question}"
 
 
-
 def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str:
+    """
+    Synchronous RAG query function. Retrives relevant Sensationz PDF knowledge chunks
+    and passes them alongside session state to OpenAI LLM.
+    """
     try:
+        # Format custom system prompt with user's active session state
         sys_prompt_content = format_system_prompt(state or {"stage": "NEW"})
         context = ""
         
+        # Run vector database search if retriever is loaded and query is not a simple procedural selection
         if retriever is not None and not _is_transactional_input(question):
             retrieval_query = _build_retrieval_query(question, chat_history)
             docs = retriever.invoke(retrieval_query)
             context = "\n\n".join([doc.page_content for doc in docs])
 
+        # Construct message payload for LangChain OpenAI LLM
         messages = [SystemMessage(content=sys_prompt_content)]
         messages.extend(_build_history_messages(chat_history))
         
         user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
         messages.append(HumanMessage(content=user_msg))
 
+        # Call LLM model to generate response
         response = llm.invoke(messages)
         return response.content
 
@@ -129,25 +153,33 @@ def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str
 
 
 def stream_rag(question: str, chat_history: list = None, state: dict = None):
+    """
+    Streaming RAG query function used by main.py and tasks.py.
+    Retrieves vector search knowledge chunks and yields the complete AI reply.
+    """
     try:
+        # Format custom system prompt with user's active session state
         sys_prompt_content = format_system_prompt(state or {"stage": "NEW"})
         context = ""
         
+        # Run vector search if retriever is active and query is an informational question/video request
         if retriever is not None and not _is_transactional_input(question):
             retrieval_query = _build_retrieval_query(question, chat_history)
             docs = retriever.invoke(retrieval_query)
             context = "\n\n".join([doc.page_content for doc in docs])
 
+        # Assemble prompt message sequence
         messages = [SystemMessage(content=sys_prompt_content)]
         messages.extend(_build_history_messages(chat_history))
 
         user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
         messages.append(HumanMessage(content=user_msg))
 
+        # Generate complete answer using LLM
         response = llm.invoke(messages)
         answer = response.content.strip()
         
-        # Yield the clean, full answer as a single structured bubble
+        # Yield the clean full response string
         if answer:
             yield answer
 

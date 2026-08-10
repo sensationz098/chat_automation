@@ -15,3 +15,6 @@ redis
 rq
 faker
 locust
+rq-scheduler
+langchain-qdrant
+qdrant-client

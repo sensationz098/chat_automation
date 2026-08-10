@@ -169,10 +169,11 @@ import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from redis import Redis
+from rq import Queue
 
 from interakt import (
     send_text_message,
-    send_image_message,
     assign_chat_to_agent,
     verify_webhook_signature,
 )
@@ -187,6 +188,7 @@ from chat_state import (
     extract_and_update_slots,
     is_user_asking_question,
 )
+from batching import add_message_to_batch
 
 load_dotenv()
 
@@ -198,6 +200,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+job_queue = Queue("interakt_messages", connection=redis_conn)
 
 _phone_locks: dict[str, asyncio.Lock] = {}
 
@@ -224,7 +229,6 @@ PAYMENT_CAPTION = """Bank details:\n Sensationz media and arts pvt ltd \n Ac no 
 
 # --- Endpoints ------------------------------------------------------
 
-
 @app.get("/chat-history/{phone}")
 async def view_chat_history(phone: str):
     """GET /chat-history/919876543210 — full conversation for a customer."""
@@ -247,13 +251,38 @@ async def receive_interakt_webhook(request: Request):
     if event_type != "message_received":
         return {"status": "ignored, not a new message"}
 
-    customer = data["data"]["customer"]
-    message = data["data"]["message"]
-    phone = customer["channel_phone_number"]
+    # -------------------------------------------------------------------------
+    # STEP 1: Extract customer details & message content from Interakt webhook payload
+    # -------------------------------------------------------------------------
+    customer = data["data"]["customer"]  # Dictionary containing customer profile from Interakt
+    message = data["data"]["message"]    # Dictionary containing message payload details
+    
+    # Extract country code (e.g., "91" or "+91") and strip any plus signs for standard formatting
+    country_code = str(customer.get("country_code", "")).replace("+", "").strip()
+    
+    # Extract customer's personal phone number (e.g., "9876543210" or "919876543210")
+    phone_num = str(customer.get("phone_number") or customer.get("phoneNumber") or "").strip().replace("+", "")
+    
+    # Build unique phone string with country code so each user has an isolated chat history & state
+    if phone_num.startswith(country_code) and country_code:
+        # Phone number already includes country code (e.g. "919876543210")
+        phone = phone_num
+    elif country_code and phone_num:
+        # Combine country code and local number (e.g. "91" + "9876543210" -> "919876543210")
+        phone = country_code + phone_num
+    else:
+        # Fallback to phone_num or channel_phone_number if format differs in webhook
+        phone = phone_num or str(customer.get("channel_phone_number", ""))
+    
+    # Extract text content sent by the customer
     text = message.get("message", "")
 
+    # Print log message showing exact sender phone number and message content
     print(f"Message from {phone}: {text}")
+    # Log incoming user message to local CSV file under customer's unique phone number
+    log_message(phone, "user", text)
 
+    # Optional test environment filter: if ALLOWED_TEST_NUMBERS is set, ignore other numbers
     if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453":
         print(f"Ignoring message from {phone} — not the allowed test number.")
         return {"status": "ignored, not test number"}
@@ -285,7 +314,6 @@ async def receive_interakt_webhook(request: Request):
             return handle_agent_handoff(phone)
 
         return handle_ai_reply(phone, text, history)
-
 
 # --- Intent handlers --------------------------------------------------
 
@@ -359,4 +387,5 @@ def handle_ai_reply(phone: str, text: str, history: list):
     full_reply = " ".join(full_answer_parts)
     save_message(phone, "assistant", full_reply)
     log_message(phone, "ai", full_reply)
-    return {"status": "ok"}
+    return {"status": "ok"}
+

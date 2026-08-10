@@ -1,3 +1,15 @@
-from redis import Redis
-r = Redis.from_url("redis://default:gQAAAAAAAvuxAAIgcDI1YmU1YjRlZGRiZGU0OTFkOTZiZGNkZTViZmUwZmVlMQ@liked-aardvark-195505.upstash.io:6379")
-print(r.ping())  # should print True
+import redis
+
+# Connect to Redis running on your computer
+r = redis.Redis(
+    host="localhost",
+    port=6379,
+    decode_responses=True
+)
+
+# Test connection
+try:
+    r.ping()
+    print("Redis is connected! ✅")
+except redis.ConnectionError:
+    print("Redis is NOT connected ❌")
