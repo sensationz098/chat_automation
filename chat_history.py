@@ -62,13 +62,10 @@ import os
 import json
 from dotenv import load_dotenv
 from supabase import create_client
-import os
-from redis import Redis
+from redis_client import get_redis_connection
+import time
 
-redis_conn = Redis.from_url(
-    os.getenv("REDIS_URL", "redis://localhost:6379"),
-    decode_responses=True,
-)
+redis_conn = get_redis_connection()
 
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
@@ -83,9 +80,12 @@ def _cache_key(phone: str) -> str:
 
 def save_message(phone: str, role: str, text: str):
     # Supabase is always the source of truth — write here first.
-    supabase.table("chat_history").insert({
-        "phone": phone, "role": role, "message": text
-    }).execute()
+    try:
+        supabase.table("chat_history").insert({
+            "phone": phone, "role": role, "message": text
+        }).execute()
+    except Exception as e:
+        print(f"[chat_history] Supabase insert failed (non-fatal): {e}")
 
     # Cache write is best-effort — never let a Redis hiccup break saving.
     try:
@@ -131,7 +131,6 @@ def get_recent_history(phone: str, limit: int = HISTORY_CACHE_LIMIT):
         print(f"[chat_history] Redis cache warm-up failed (non-fatal): {e}")
 
     return history
-
 
 def get_full_history_for_agent(phone: str):
     # Always reads Supabase directly — this is for the human-agent dashboard,

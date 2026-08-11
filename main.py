@@ -189,7 +189,8 @@ from chat_state import (
     is_user_asking_question,
 )
 from batching import add_message_to_batch
-
+from upstash_redis import Redis
+from redis_client import get_redis_connection
 load_dotenv()
 
 app = FastAPI()
@@ -201,7 +202,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+redis_conn = get_redis_connection()
 job_queue = Queue("interakt_messages", connection=redis_conn)
 
 _phone_locks: dict[str, asyncio.Lock] = {}
@@ -287,33 +288,38 @@ async def receive_interakt_webhook(request: Request):
         print(f"Ignoring message from {phone} — not the allowed test number.")
         return {"status": "ignored, not test number"}
 
-    lock = _get_lock_for_phone(phone)
-    async with lock:
-        try:
-            history = get_recent_history(phone)
-        except Exception as e:
-            print(f"[main.py] Failed to fetch history for {phone}: {e}")
-            history = []
+    # Enqueue message into Redis batch queue for async worker execution (handles 500+ concurrent requests)
+    try:
+        add_message_to_batch(phone, text)
+        return {"status": "ok", "message": "enqueued"}
+    except Exception as e:
+        print(f"[main.py] Redis enqueueing failed ({e}) — processing synchronously as fallback.")
+        lock = _get_lock_for_phone(phone)
+        async with lock:
+            try:
+                history = get_recent_history(phone)
+            except Exception as ex:
+                print(f"[main.py] Failed to fetch history for {phone}: {ex}")
+                history = []
 
-        try:
-            save_message(phone, "user", text)
-            log_message(phone, "user", text)
-        except Exception as e:
-            print(f"[main.py] Failed to save incoming message for {phone}: {e}")
+            try:
+                save_message(phone, "user", text)
+            except Exception as ex:
+                print(f"[main.py] Failed to save incoming message for {phone}: {ex}")
 
-        if is_escalated(phone):
-            print(f"{phone} is already escalated — bot staying out of it.")
-            return {"status": "escalated, bot not responding"}
+            if is_escalated(phone):
+                print(f"{phone} is already escalated — bot staying out of it.")
+                return {"status": "escalated, bot not responding"}
 
-        if PRIORITY_AGENT_EMAIL:
-            assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL)
+            if PRIORITY_AGENT_EMAIL:
+                assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL)
 
-        text_lower = text.lower()
+            text_lower = text.lower()
 
-        if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
-            return handle_agent_handoff(phone)
+            if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
+                return handle_agent_handoff(phone)
 
-        return handle_ai_reply(phone, text, history)
+            return handle_ai_reply(phone, text, history)
 
 # --- Intent handlers --------------------------------------------------
 

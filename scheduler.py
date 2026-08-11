@@ -14,10 +14,14 @@ from dotenv import load_dotenv
 from redis import Redis
 from rq import Queue
 from rq_scheduler import Scheduler
-
+from upstash_redis import Redis
 load_dotenv()
 
-redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+# redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+redis_conn = Redis(
+    url=os.getenv("UPSTASH_REDIS_REST_URL"),
+    token=os.getenv("UPSTASH_REDIS_REST_TOKEN")
+)
 queue = Queue("interakt_messages", connection=redis_conn)
 scheduler = Scheduler(queue=queue, connection=redis_conn)
 

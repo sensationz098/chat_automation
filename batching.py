@@ -32,14 +32,14 @@ from dotenv import load_dotenv
 from redis import Redis
 from rq import Queue
 from rq_scheduler import Scheduler
-
+from redis_client import get_redis_connection
 from tasks import process_incoming_message
 
 load_dotenv()
 
 BATCH_WAIT_SECONDS = 5
 
-redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+redis_conn = get_redis_connection()
 job_queue = Queue("interakt_messages", connection=redis_conn)
 scheduler = Scheduler(queue=job_queue, connection=redis_conn)
 
@@ -79,6 +79,7 @@ def process_batch(phone: str, token: str):
     token is still the CURRENT trigger — otherwise a newer message
     came in and a newer job superseded this one.
     """
+    print(f"Process_batch STARTED: {phone}, token={token}")
     trigger_key = f"batch_trigger:{phone}"
     current_token = redis_conn.get(trigger_key)
 

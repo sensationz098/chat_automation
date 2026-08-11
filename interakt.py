@@ -100,3 +100,4 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
         return True   # signature checking disabled if no secret configured
     computed = "sha256=" + hmac.new(INTERAKT_WEBHOOK_SECRET.encode(), payload, sha256).hexdigest()
     return computed == signature
+

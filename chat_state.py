@@ -40,7 +40,6 @@ def mark_escalated(phone: str):
     state = get_user_state(phone)
     state["is_escalated"] = True
 
-
 def is_escalated(phone: str) -> bool:
     """
     Checks whether a specific phone number has been escalated to a human agent.

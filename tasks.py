@@ -7,7 +7,7 @@ processes state updates, runs RAG query, and sends replies via Interakt API.
 import os
 from dotenv import load_dotenv
 from redis import Redis
-
+from upstash_redis import Redis
 # Import messaging and assignment functions from interakt wrapper
 from interakt import send_text_message, send_image_message, assign_chat_to_agent
 
@@ -30,12 +30,12 @@ from chat_state import (
 # Import RAG streaming generator
 from rag import stream_rag
 
+from redis_client import get_redis_connection
+
 # Load environment variables
 load_dotenv()
 
-# Connect to Redis instance for distributed locks and task queues
-redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-
+redis_conn = get_redis_connection()
 # Default and escalation agent emails configured in environment variables
 PRIORITY_AGENT_EMAIL = os.getenv("PRIORITY_AGENT_EMAIL")
 PRIORITY_AGENT_EMAIL_ANOTHER = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER")
