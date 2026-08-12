@@ -27,11 +27,11 @@ from chat_state import (
     is_user_asking_question,
 )
 
-# Import RAG streaming generator
-from rag import stream_rag
+# Import RAG streaming and async query functions
+from rag import stream_rag, ask_rag_async
 
 from redis_client import get_redis_connection
-
+import time
 # Load environment variables
 load_dotenv()
 
@@ -48,14 +48,18 @@ PAYMENT_QR_IMAGE_URL = os.getenv("PAYMENT_QR_IMAGE_URL")
 PAYMENT_CAPTION = """Bank details:\n Sensationz media and arts pvt ltd \n Ac no 051863300000382"""
 
 
+import time
+
 def process_incoming_message(phone: str, text: str):
     """
     Background worker job: pulled off the interakt_messages Redis queue by worker processes.
     Acquires a Redis lock for this specific customer's phone number so out-of-order execution
     cannot corrupt conversation history. Each unique phone number gets independent execution.
     """
+    start_time = time.time()  # Start latency timer
+
     # Create Redis lock keyed to customer's unique phone number
-    lock = redis_conn.lock(f"phone-lock:{phone}", timeout=30, blocking_timeout=15)
+    lock = redis_conn.lock(f"phone-lock:{phone}", timeout=60, blocking_timeout=15)
 
     # Acquire distributed lock
     acquired = lock.acquire(blocking=True)
@@ -91,11 +95,11 @@ def process_incoming_message(phone: str, text: str):
 
         # 5. Check if customer requested a human agent
         if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
-            handle_agent_handoff(phone)
+            handle_agent_handoff(phone, start_time)
             return
 
         # 6. Generate and send AI response using session state & RAG knowledge
-        handle_ai_reply(phone, text, history)
+        handle_ai_reply(phone, text, history, start_time)
 
     finally:
         # Always release Redis lock after processing completes
@@ -105,7 +109,8 @@ def process_incoming_message(phone: str, text: str):
             pass   # Lock timeout safety fallback
 
 
-def handle_agent_handoff(phone: str):
+
+def handle_agent_handoff(phone: str, start_time: float = None):
     """
     Handles customer request to talk to a human representative.
     Assigns chat to escalation agent and marks session as escalated.
@@ -126,34 +131,44 @@ def handle_agent_handoff(phone: str):
         )
         send_text_message(phone, reply)
 
-    save_message(phone, "assistant", reply)
+    latency_sec = round(time.time() - start_time, 2) if start_time else None
+    save_message(phone, "assistant", reply, response_time_sec=latency_sec)
 
 
-def handle_ai_reply(phone: str, text: str, history: list):
+def handle_ai_reply(phone: str, text: str, history: list, start_time: float = None):
     """
     Generates AI response using session state slots, state guards, and RAG knowledge base.
     """
+    # Check for specific Ad pre-filled message trigger
+    if "hello! can i get more info on yoga classes?" in text.strip().lower():
+        reply = "Thanks this is our offer for our yoga classes"
+        send_text_message(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
     # 1. Update session state & extract batch timing / package slots from user input
     state = extract_and_update_slots(phone, text)
     is_q = is_user_asking_question(text)
 
     # 2. Check deterministic state guards (ONLY if customer is NOT asking an informational question/video request)
     if not is_q and state["stage"] == "READY_FOR_APP_LINK":
-        timing = state.get("timing") or "your selected"
-        package = state.get("package") or "your selected"
-        fee = state.get("fee") or ""
+        package = (state.get("package") or "3-month").lower()
+        fee = state.get("fee") or "₹1,750"
         reply = (
-            f"🎉 Great choice! You're all set for the {timing} batch on the {package} package ({fee})! 🌸\n\n"
-            "To confirm your enrollment, you must download the Sensationz App. Through the app, you will also receive your special welcome discount coupon! 🎁\n\n"
-            "Please download the Sensationz App here:\n\n"
-            "📱 Android:\nhttps://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n\n"
-            "🍎 iOS:\nhttps://apps.apple.com/us/app/sensationz/id6761418351\n\n"
-            "Please download the app and create your profile. Once done, let me know here and I'll activate your personalized welcome coupon 🎁"
+            f"Great choice! 😊 You've selected the {package} package for {fee}.\n\n"
+            "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
+            "Please download the app here:\n\n"
+            "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
+            "Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!"
         )
         state["stage"] = "APP_LINK_SENT"
         save_user_state(phone, state)
         send_text_message(phone, reply)
-        save_message(phone, "assistant", reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
         log_message(phone, "ai", reply)
         return
 
@@ -168,17 +183,157 @@ def handle_ai_reply(phone: str, text: str, history: list):
         state["stage"] = "COUPON_SENT"
         save_user_state(phone, state)
         send_text_message(phone, reply)
-        save_message(phone, "assistant", reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
         log_message(phone, "ai", reply)
         return
 
     # 3. Prompt generation with active state context & RAG knowledge retrieval
     full_answer_parts = []
     for chunk_text in stream_rag(text, chat_history=history, state=state):
-        send_text_message(phone, chunk_text)
-        full_answer_parts.append(chunk_text)
+        # full_answer_parts.append(str(chunk_text))
+        full_answer_parts.append(str(chunk_text))
 
-    # Save and log complete assistant reply
-    full_reply = " ".join(full_answer_parts)
-    save_message(phone, "assistant", full_reply)
+    full_reply = "".join(full_answer_parts).strip()
+
+    # 4. Check for low-confidence or fallback AI responses across 2-3 consecutive queries
+    low_conf_triggers = ["unable to process", "unable to answer", "i don't have information", "not sure", "sorry, the ai service"]
+    if any(trigger in full_reply.lower() for trigger in low_conf_triggers):
+        state["low_confidence_count"] = state.get("low_confidence_count", 0) + 1
+    else:
+        state["low_confidence_count"] = 0
+
+    # If AI has been unable to give clear answers for 2 or more consecutive messages, offer human agent support
+    if state.get("low_confidence_count", 0) >= 2:
+        full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
+
+    save_user_state(phone, state)
+    send_text_message(phone, full_reply)
+
+    # Calculate latency in seconds and save to Supabase
+    latency_sec = round(time.time() - start_time, 2) if start_time else None
+    print(f"[tasks] {phone}: AI reply generated & sent in {latency_sec}s")
+    save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
     log_message(phone, "ai", full_reply)
+
+async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
+    """
+    Async AI reply generator: uses non-blocking ask_rag_async for high-concurrency LLM execution.
+    """
+    # Check for specific Ad pre-filled message trigger
+    if text.strip().lower() == "hello! can i get more info on yoga classes?":
+        reply = "Thanks this is our offer for our yoga classes"
+        send_text_message(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+    state = extract_and_update_slots(phone, text)
+    is_q = is_user_asking_question(text)
+
+    if not is_q and state["stage"] == "READY_FOR_APP_LINK":
+        package = (state.get("package") or "3-month").lower()
+        fee = state.get("fee") or "₹1,750"
+        reply = (
+            f"Great choice! 😊 You've selected the {package} package for {fee}.\n\n"
+            "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
+            "Please download the app here:\n\n"
+            "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
+            "Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!"
+        )
+        state["stage"] = "APP_LINK_SENT"
+        save_user_state(phone, state)
+        send_text_message(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+    if state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
+        reply = (
+            "🎉 Welcome to the Sensationz Yoga family! 🌸\n"
+            "Your app setup and profile are complete.\n\n"
+            "🎁 Your personalized welcome coupon code is: **SENSZAPP**\n\n"
+            "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
+        )
+        state["coupon_sent"] = True
+        state["stage"] = "COUPON_SENT"
+        save_user_state(phone, state)
+        send_text_message(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+
+    rag_start = time.perf_counter()
+    full_reply = await ask_rag_async(text, chat_history=history, state=state)
+    full_reply = full_reply.strip()
+    rag_time = time.perf_counter() - rag_start
+    print(f"[TIMING] {phone} RAG: {rag_time:.2f}s")
+
+    low_conf_triggers = ["unable to process", "unable to answer", "i don't have information", "not sure", "sorry, the ai service"]
+    if any(trigger in full_reply.lower() for trigger in low_conf_triggers):
+        state["low_confidence_count"] = state.get("low_confidence_count", 0) + 1
+    else:
+        state["low_confidence_count"] = 0
+
+    if state.get("low_confidence_count", 0) >= 2:
+        full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
+    save_user_state(phone, state)
+    send_text_message(phone, full_reply)
+
+    latency_sec = round(time.time() - start_time, 2) if start_time else None
+    print(f"[tasks-async] {phone}: AI reply generated & sent in {latency_sec}s")
+    save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
+    log_message(phone, "ai", full_reply)
+
+
+async def process_incoming_message_async(phone: str, text: str):
+    """
+    Non-blocking async task worker function.
+    Acquires per-user distributed lock and runs async AI reply pipeline.
+    """
+    start_time = time.time()
+    lock = redis_conn.lock(f"phone-lock:{phone}", timeout=60, blocking_timeout=15)
+
+    acquired = lock.acquire(blocking=True)
+    if not acquired:
+        print(f"[tasks-async] Could not acquire lock for {phone} in time -- skipping.")
+        return
+
+    try:
+        try:
+            history = get_recent_history(phone)
+        except Exception as e:
+            print(f"[tasks-async] Failed to fetch history for {phone}: {e}")
+            history = []
+
+        try:
+            save_message(phone, "user", text)
+            log_message(phone, "user", text)
+        except Exception as e:
+            print(f"[tasks-async] Failed to save incoming message for {phone}: {e}")
+
+        if is_escalated(phone):
+            print(f"{phone} is already escalated — bot staying out of it.")
+            return
+
+        if PRIORITY_AGENT_EMAIL:
+            assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL)
+
+        text_lower = text.lower()
+
+        if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
+            handle_agent_handoff(phone, start_time)
+            return
+        
+        await handle_ai_reply_async(phone, text, history, start_time)
+
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass

@@ -11,7 +11,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from prompt import SYSTEM_PROMPT
-
+import asyncio
 client = QdrantClient(
     url=os.getenv("QDRANT_URL"),
     api_key=os.getenv("QDRANT_API_KEY"),
@@ -139,9 +139,9 @@ def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     return f"{context_str} {question}"
 
 
-def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str:
+async def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str:
     """
-    Synchronous RAG query function. Retrives relevant Sensationz PDF knowledge chunks
+    RAG query function. Retrives relevant Sensationz PDF knowledge chunks
     and passes them alongside session state to OpenAI LLM.
     """
     try:
@@ -152,7 +152,10 @@ def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str
         # Run vector database search if retriever is loaded and query is not a simple procedural selection
         if retriever is not None and not _is_transactional_input(question):
             retrieval_query = _build_retrieval_query(question, chat_history)
-            docs = retriever.invoke(retrieval_query)
+            try:
+                docs = await retriever.ainvoke(retrieval_query)
+            except Exception:
+                docs = await asyncio.to_thread(retriever.invoke, retrieval_query)
             context = "\n\n".join([doc.page_content for doc in docs])
 
         # Construct message payload for LangChain OpenAI LLM
@@ -162,9 +165,13 @@ def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str
         user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
         messages.append(HumanMessage(content=user_msg))
 
-        # Call LLM model to generate response
-        response = llm.invoke(messages)
-        return response.content
+        # Call LLM model asynchronously to generate response
+        try:
+            response = await llm.ainvoke(messages)
+        except Exception:
+            response = await asyncio.to_thread(llm.invoke, messages)
+
+        return response.content.strip()
 
     except Exception as e:
         error = str(e).lower()
@@ -172,6 +179,11 @@ def ask_rag(question: str, chat_history: list = None, state: dict = None) -> str
             return "Sorry, the AI service has reached its usage limit. Please try again later."
         print(f"[rag.py] ask_rag error: {e}")
         return "Sorry, I'm unable to process your request right now."
+
+
+async def ask_rag_async(question: str, chat_history: list = None, state: dict = None) -> str:
+    """Non-blocking async RAG query function."""
+    return await ask_rag(question, chat_history, state)
 
 
 def stream_rag(question: str, chat_history: list = None, state: dict = None):
@@ -212,4 +224,3 @@ def stream_rag(question: str, chat_history: list = None, state: dict = None):
             return
         print(f"[rag.py] stream_rag error: {e}")
         yield "Sorry, I'm unable to answer your question right now."
-

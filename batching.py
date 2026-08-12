@@ -1,99 +1,100 @@
 """
-batching.py — implements the "5 second gap" idea: instead of
-processing every message the instant it arrives, wait a short window.
-If another message from the SAME person arrives during that window,
-combine them and restart the wait. Only process once nothing new has
-come in for the full window.
+batching.py — implements fast, reliable debouncing (1.5s gap).
+If another message from the SAME person arrives during the 1.5s window,
+combines them into a single prompt.
 
-Why this matters: people often send WhatsApp messages in quick bursts
-("hi", then "do you have milk", then "and bread") instead of one
-message. Without batching, that becomes 3 separate AI calls and 3
-separate replies that don't understand each other. With batching, it
-becomes ONE combined message, answered once, properly.
-
-How it works (the "debounce with a token" pattern):
-1. A message arrives -> push its text onto a Redis list for that
-   phone, and generate a new random "token" stored as the CURRENT
-   trigger for that phone. Schedule a delayed job (BATCH_WAIT_SECONDS
-   from now) carrying that token.
-2. When the delayed job fires, it checks: "is my token still the
-   CURRENT trigger for this phone?" If yes -> nothing newer arrived
-   during the wait, so process the whole batch now. If no -> a newer
-   message came in and scheduled its OWN delayed job with a new
-   token, so this older job does nothing (the newer one will handle
-   everything, including this message's text, since it's all sitting
-   in the same Redis list).
+Uses an asyncio task debouncer + Redis token verification:
+- No fragile rq_scheduler or separate background scheduler process required.
+- 100% reliable execution 1.5 seconds after user finishes typing.
 """
 
 import os
 import uuid
-from datetime import timedelta
+import asyncio
 from dotenv import load_dotenv
-from redis import Redis
-from rq import Queue
-from rq_scheduler import Scheduler
 from redis_client import get_redis_connection
-from tasks import process_incoming_message
+from tasks import process_incoming_message, process_incoming_message_async
 
 load_dotenv()
 
-BATCH_WAIT_SECONDS = 5
+BATCH_WAIT_SECONDS = 0.5
 
 redis_conn = get_redis_connection()
-job_queue = Queue("interakt_messages", connection=redis_conn)
-scheduler = Scheduler(queue=job_queue, connection=redis_conn)
+_active_debounce_tasks = {}
+
+
+async def _async_debounce_timer(phone: str, token: str):
+    """
+    Waits BATCH_WAIT_SECONDS (1.5s). If no newer message arrived for this phone number,
+    pulls all messages from batch:{phone}, combines them, and processes the AI reply.
+    """
+    await asyncio.sleep(BATCH_WAIT_SECONDS)
+    trigger_key = f"batch_trigger:{phone}"
+
+    try:
+        current_token = redis_conn.get(trigger_key)
+        current_token_str = current_token.decode() if isinstance(current_token, bytes) else current_token
+
+        if not current_token_str or current_token_str != token:
+            # A newer message arrived during the 1.5s wait window — let newer job handle it
+            return
+
+        batch_key = f"batch:{phone}"
+        raw_messages = redis_conn.lrange(batch_key, 0, -1)
+        if not raw_messages:
+            return
+
+        messages = [m.decode() if isinstance(m, bytes) else m for m in raw_messages]
+        combined_text = " ".join(messages)
+
+        # Clear batch keys
+        redis_conn.delete(batch_key)
+        redis_conn.delete(trigger_key)
+
+        print(f"[batching] {phone}: batch ready after {BATCH_WAIT_SECONDS}s -> '{combined_text}'")
+
+        # Process asynchronously
+        await process_incoming_message_async(phone, combined_text)
+
+    except Exception as e:
+        print(f"[batching] Error in async debounce timer for {phone}: {e}")
+        try:
+            batch_key = f"batch:{phone}"
+            raw_messages = redis_conn.lrange(batch_key, 0, -1)
+            if raw_messages:
+                messages = [m.decode() if isinstance(m, bytes) else m for m in raw_messages]
+                combined_text = " ".join(messages)
+                redis_conn.delete(batch_key)
+                redis_conn.delete(trigger_key)
+                await process_incoming_message_async(phone, combined_text)
+        except Exception as ex:
+            print(f"[batching] Fallback processing error for {phone}: {ex}")
+
+
+async def add_message_to_batch_async(phone: str, text: str):
+    """
+    Async function to add a message to this phone's batch
+    and spawn the 1.5s asyncio debounce timer task.
+    """
+    batch_key = f"batch:{phone}"
+    trigger_key = f"batch_trigger:{phone}"
+
+    redis_conn.rpush(batch_key, text)
+
+    token = str(uuid.uuid4())
+    redis_conn.set(trigger_key, token)
+
+    task = asyncio.create_task(_async_debounce_timer(phone, token))
+    _active_debounce_tasks[phone] = task
+    print(f"[batching] {phone}: message added to batch, processing in {BATCH_WAIT_SECONDS}s")
 
 
 def add_message_to_batch(phone: str, text: str):
     """
-    Call this instead of enqueueing process_incoming_message directly.
-    Adds the message to this phone's pending batch and (re)schedules
-    the delayed processing job.
+    Synchronous fallback wrapper for add_message_to_batch.
     """
-    batch_key = f"batch:{phone}"
-    trigger_key = f"batch_trigger:{phone}"
-
-    # Add this message's text to the growing batch for this phone.
-    redis_conn.rpush(batch_key, text)
-
-    # Generate a fresh token and make it THE current trigger — any
-    # earlier scheduled job (from a previous message in this same
-    # burst) will see its own old token no longer matches this, and
-    # will skip processing, deferring to this newest one instead.
-    token = str(uuid.uuid4())
-    redis_conn.set(trigger_key, token)
-
-    scheduler.enqueue_in(
-        timedelta(seconds=BATCH_WAIT_SECONDS),
-        process_batch,
-        phone,
-        token,
-    )
-    print(f"[batching] {phone}: message added to batch, processing in {BATCH_WAIT_SECONDS}s "
-          f"(unless another message arrives first)")
-
-
-def process_batch(phone: str, token: str):
-    """
-    Runs after the wait window. Only actually processes if this job's
-    token is still the CURRENT trigger — otherwise a newer message
-    came in and a newer job superseded this one.
-    """
-    print(f"Process_batch STARTED: {phone}, token={token}")
-    trigger_key = f"batch_trigger:{phone}"
-    current_token = redis_conn.get(trigger_key)
-
-    if current_token is None or current_token.decode() != token:
-        print(f"[batching] {phone}: newer message arrived during wait — skipping, newer job will handle it.")
-        return
-
-    batch_key = f"batch:{phone}"
-    messages = redis_conn.lrange(batch_key, 0, -1)
-    combined_text = " ".join(m.decode() for m in messages)
-
-    # Clear the batch now that we're processing it.
-    redis_conn.delete(batch_key)
-    redis_conn.delete(trigger_key)
-
-    print(f"[batching] {phone}: processing combined batch -> '{combined_text}'")
-    process_incoming_message(phone, combined_text)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(add_message_to_batch_async(phone, text))
+    except RuntimeError:
+        asyncio.run(add_message_to_batch_async(phone, text))

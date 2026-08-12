@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+
 INTERAKT_API_KEY = os.getenv("INTERAKT_API_KEY")
 INTERAKT_WEBHOOK_SECRET = os.getenv("INTERAKT_WEBHOOK_SECRET")
 
@@ -25,6 +27,7 @@ def _headers():
         "Content-Type": "application/json",
     }
 
+# TEST_MODE = True
 
 def _split_phone(phone_with_country_code: str):
     """
@@ -47,10 +50,13 @@ def send_text_message(phone: str, message: str):
         "type": "Text",
         "data": {"message": message},
     }
-    response = requests.post(f"{BASE_URL}/message/", headers=_headers(), json=payload)
-    print("[interakt] send_text_message:", response.status_code, response.text)
-    return response
-
+    try:
+        response = requests.post(f"{BASE_URL}/message/", headers=_headers(), json=payload, timeout=5)
+        print("[interakt] send_text_message:", response.status_code, response.text)
+        return response
+    except Exception as e:
+        print(f"[interakt] send_text_message error (handled): {e}")
+        return None
 
 def send_image_message(phone: str, media_url: str, caption: str = ""):
     """
@@ -69,9 +75,13 @@ def send_image_message(phone: str, media_url: str, caption: str = ""):
             "mediaUrl": media_url,
         },
     }
-    response = requests.post(f"{BASE_URL}/message/", headers=_headers(), json=payload)
-    print("[interakt] send_image_message:", response.status_code, response.text)
-    return response
+    try:
+        response = requests.post(f"{BASE_URL}/message/", headers=_headers(), json=payload, timeout=5)
+        print("[interakt] send_image_message:", response.status_code, response.text)
+        return response
+    except Exception as e:
+        print(f"[interakt] send_image_message error (handled): {e}")
+        return None
 
 
 def assign_chat_to_agent(phone: str, agent_email: str) -> bool:
@@ -80,19 +90,28 @@ def assign_chat_to_agent(phone: str, agent_email: str) -> bool:
     the call succeeded, or it was already assigned to them (Interakt
     returns a 400 for that specific case, which isn't a real failure).
     """
+    # if TEST_MODE:
+    #     print(
+    #         f"[TEST MODE] Skipping Interakt assignment "
+    #         f"for {phone}"
+    #     )
+    #     return True
     payload = {"user_phone_number": phone, "agent_email": agent_email}
-    response = requests.post(f"{BASE_URL}/assignment/", headers=_headers(), json=payload)
-    print("[interakt] assign_chat_to_agent:", response.status_code, response.text)
+    try:
+        response = requests.post(f"{BASE_URL}/assignment/", headers=_headers(), json=payload, timeout=5)
+        print("[interakt] assign_chat_to_agent:", response.status_code, response.text)
 
-    if response.status_code == 200:
-        return True
-    if response.status_code == 400 and "already assigned to same agent" in response.text.lower():
-        print(f"[interakt] {agent_email} was already assigned -- treating as success.")
-        return True
+        if response.status_code == 200:
+            return True
+        if response.status_code == 400 and "already assigned to same agent" in response.text.lower():
+            print(f"[interakt] {agent_email} was already assigned -- treating as success.")
+            return True
 
-    print(f"[interakt] Assignment genuinely failed: {response.status_code} {response.text}")
-    return False
-
+        print(f"[interakt] Assignment genuinely failed: {response.status_code} {response.text}")
+        return False
+    except Exception as e:
+        print(f"[interakt] assign_chat_to_agent error (handled): {e}")
+        return False
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     """Verified against Interakt's own sample code for webhook security."""

@@ -1,0 +1,254 @@
+user_id,phone,user_message,status_code,enqueue_latency_ms,ai_reply,response_time_sec,funnel_stage,status
+1,919800000001,Hi,200,3219.33,"Hello! 😊 Welcome to Sensationz Yoga! We offer live interactive online yoga classes to help you stay fit, healthy, and peaceful. 🧘‍♀️✨ Would you like to enroll in our Yoga classes?",65.46,ENROLL_ASKED,SUCCESS
+2,919800000002,Yes,200,3097.01,"Thank you! 😊 Please go ahead and download the Sensationz App using these links:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+Once you've installed the app and created your profile, just let me know here so I can activate your special welcome coupon 🎁. Looking forward to welcoming you to our classes! 🧘‍♀️✨",56.33,ENROLL_CONFIRMED,SUCCESS
+3,919800000003,Other timings,200,3110.51,"Thank you for your interest! 😊
+
+Here are the available batch timings at Sensationz Yoga:
+
+**Morning Batches:**
+- 6:00 AM – 7:00 AM (Jagriti, Suman, Priya)
+- 7:00 AM – 8:00 AM (Mradula)
+- 8:00 AM – 9:00 AM (Sonali Dhote, Prachi during August)
+- 10:00 AM – 11:00 AM (Nidhi)
+
+**Afternoon Batch:**
+- 12:00 PM – 1:00 PM (Nidhi)
+
+**Evening Batches:**
+- 4:00 PM – 5:00 PM
+- 5:00 PM – 6:00 PM
+- 6:00 PM – 7:00 PM
+- 7:00 PM – 8:00 PM
+
+Would you like to select any of these timings? Once you decide, I can guide you on the next steps! 🧘‍♀️✨",93.72,NEW,SUCCESS
+4,919800000004,5 6 pm,200,3155.39,"You’ve selected the 5:00–6:00 PM evening batch with Instructor Suman. 😊
+
+Would you like to proceed with this timing and choose a package duration to complete your enrollment?",99.46,TIMING_SELECTED,SUCCESS
+5,919800000005,What are the fees?,200,3167.0,"Hello! 😊 The fees for our online Yoga courses at Sensationz Yoga are:
+
+- 1 Month: ₹700
+- 3 Months: ₹1,750
+- 6 Months: ₹3,200
+- 1 Year: ₹5,000
+
+All classes are conducted live online through the Sensationz App, and you can join from anywhere in the world! 🌍
+
+Would you like to know about the batch timings or how to enroll?",48.44,NEW,SUCCESS
+6,919800000006,Do you have a demo class video?,200,3126.38,"Hello! 😊 Yes, we do have demo class videos to give you a good idea of our classes.
+
+Here are the links:
+- Trainer Suman: https://youtu.be/IiVVdu4NkwI?si=leLgCK40Uo5Qhr0V
+- Trainer Priya Mathur: https://youtu.be/dyokiCXRs2Q
+
+Would you like to know more about our classes or how to enroll?",119.63,NEW,SUCCESS
+7,919800000007,3 months,200,3150.39,"Thank you for confirming! 😊 The 3-month package is ₹1,750.
+
+To proceed, please download the Sensationz App using these links:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+Once you've downloaded the app and created your profile, just let me know here so I can activate your exclusive welcome coupon!",85.63,NEW,SUCCESS
+8,919800000008,1 year package,200,3139.35,"Hello! 😊 The 1-year yoga package at Sensationz Yoga is priced at ₹5,000. 
+
+To confirm your enrollment, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.
+
+Please download the app here:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+Once you've downloaded the app and created your profile, let me know so I can activate your personalized welcome coupon!",122.41,NEW,SUCCESS
+9,919800000009,Is this online live on Zoom?,200,3181.53,"Hello! 😊 Our online live yoga classes are conducted through the Sensationz App, not on Zoom. 🧘‍♀️✨
+
+All sessions are live, interactive, and happen in real time via our app, where you can ask questions, get posture corrections, and practice comfortably from anywhere in the world. 
+
+Would you like to see a demo class or know more about how to enroll? Just let me know!",63.33,ENROLL_ASKED,SUCCESS
+10,919800000010,Teacher details kya hai?,200,3130.87,"Hello! 😊  
+Sensationz Yoga ke instructors hain:  
+- Jagriti  
+- Suman  
+- Priya  
+- Mradula  
+- Sonali Dhote  
+- Prachi (August mein Jagriti ke saath batch lengi)  
+- Nidhi  
+
+Aapko kis instructor ke saath classes lena pasand hai? Ya unke timings, syllabus, ya class mode ke baare mein jaankari chahiye?  
+Bataiye, main aapki madad karta hoon! ✨",61.94,NEW,SUCCESS
+11,919800000011,Hi,200,3196.77,"Hello! 😊 Welcome to Sensationz Yoga! We offer live interactive online yoga classes to help you stay fit, healthy, and peaceful. 🧘‍♀️✨ Are you interested in enrolling in our Yoga classes?",65.41,ENROLL_ASKED,SUCCESS
+12,919800000012,Yes,200,3083.36,"Thank you for your interest! 😊 
+
+Please select your preferred timing from the following options:
+- Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM
+- Afternoon: 12:00–1:00 PM
+- Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM
+
+Let me know which one works best for you!",68.22,ENROLL_CONFIRMED,SUCCESS
+13,919800000013,Other timings,200,3171.24,"Thank you for your interest! 😊
+
+Here are the available batch timings at Sensationz Yoga:
+
+**Morning Batches:**
+- 6:00 AM – 7:00 AM (Jagriti)
+- 6:00 AM – 7:00 AM (Priya)
+- 7:00 AM – 8:00 AM (Mradula)
+- 8:00 AM – 9:00 AM (Sonali Dhote or Prachi during August)
+- 10:00 AM – 11:00 AM (Nidhi)
+- 12:00 PM – 1:00 PM (Nidhi)
+
+**Evening Batches:**
+- 4:00 PM – 5:00 PM
+- 5:00 PM – 6:00 PM
+- 6:00 PM – 7:00 PM
+- 7:00 PM – 8:00 PM
+
+Please let me know which timing suits you best, and I’ll help you with the next step! 🧘‍♀️✨",68.46,NEW,SUCCESS
+14,919800000014,5 6 pm,200,3199.85,"You’ve selected the 5:00–6:00 PM evening batch with Instructor Jagriti. 😊
+
+Would you like to proceed with this timing and choose a package duration?",48.56,TIMING_SELECTED,SUCCESS
+15,919800000015,What are the fees?,200,3182.25,"Hello! 😊 The course fees at Sensationz Yoga are:
+
+- 1 Month: ₹700
+- 3 Months: ₹1,750
+- 6 Months: ₹3,200
+- 1 Year: ₹5,000
+
+All classes are conducted online through the Sensationz App, and you can join from anywhere in the world! 🌍
+
+Would you like to know about the batch timings or how to enroll?",98.87,NEW,SUCCESS
+16,919800000016,Do you have a demo class video?,200,3161.35,"Yes, we do! 😊 Here are the reference videos for our demo classes:
+
+- Trainer Suman: [Demo Class Video](https://youtu.be/IiVVdu4NkwI?si=leLgCK40Uo5Qhr0V)
+- Trainer Priya Mathur: [Demo Class Video](https://youtu.be/dyokiCXRs2Q)
+
+These videos will give you a good idea of what to expect in our live, interactive classes. Attending a trial session is also encouraged before enrolling. Would you like more details about the trial or how to get started?",127.69,NEW,SUCCESS
+17,919800000017,3 months,200,382.34,"Thank you! 😊 You've chosen the 3-month package for ₹1,750.
+
+To complete your enrollment, please download the Sensationz App here:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+After installing the app and creating your profile, just let me know so I can activate your special welcome coupon 🎁. Looking forward to seeing you in class! 🧘‍♀️✨",55.62,NEW,SUCCESS
+18,919800000018,1 year package,200,3149.6,"Hello! 😊 You've selected the 1-year package for ₹5,000. 
+
+To complete your enrollment, please download the Sensationz App through the links below, as you'll receive a special welcome discount coupon 🎁:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!",83.24,NEW,SUCCESS
+19,919800000019,Is this online live on Zoom?,200,383.21,"Hello! 😊 To clarify, our online live yoga classes are conducted through the Sensationz App, not on Zoom. 🧘‍♀️✨
+
+All sessions are live, interactive, and happen in real time via our app, where you can engage with instructors, ask questions, and get posture corrections. 
+
+Would you like to see a demo class or learn how to enroll? Just let me know!",62.88,ENROLL_ASKED,SUCCESS
+20,919800000020,Teacher details kya hai?,200,3091.52,"Hello! 😊  
+Sensationz Yoga ke instructors hain:  
+- Jagriti  
+- Suman  
+- Priya  
+- Mradula  
+- Sonali Dhote  
+- Prachi (Jagriti ke during August)  
+- Nidhi  
+
+Aap kis instructor ke saath classes lena chahte hain? Ya phir aapko sirf unke details chahiye?  
+Agar aapko unke timings, syllabus, ya koi aur jaankari chahiye, toh bataiye! ✨",113.83,NEW,SUCCESS
+21,919800000021,Hi,200,381.19,"Hello! 😊 Welcome to Sensationz Yoga! We offer live interactive online yoga classes to help you stay fit, healthy, and peaceful. 🧘‍♀️✨ Are you looking to enroll in our Yoga classes?",84.09,ENROLL_ASKED,SUCCESS
+22,919800000022,Yes,200,3107.2,"Thank you! 😊 Please tell me which specific timing you'd like to choose for your classes:
+
+- 6:00–7:00 AM  
+- 7:00–8:00 AM  
+- 8:00–9:00 AM  
+- 12:00–1:00 PM  
+- 4:00–5:00 PM  
+- 5:00–6:00 PM  
+- 6:00–7:00 PM  
+- 7:00–8:00 PM  
+
+Which one works best for you? ✨",50.99,ENROLL_CONFIRMED,SUCCESS
+23,919800000023,Other timings,200,12175.67,"Thank you for your message! 😊
+
+We have a wide range of batch timings to suit different schedules:
+
+**Morning Batches:**
+- 6:00 AM – 7:00 AM (Instructor Suman or Priya)
+- 7:00 AM – 8:00 AM (Instructor Mradula)
+- 8:00 AM – 9:00 AM (Instructor Sonali Dhote or Prachi)
+- 10:00 AM – 11:00 AM (Instructor Nidhi)
+
+**Afternoon Batch:**
+- 12:00 PM – 1:00 PM (Instructor Nidhi)
+
+**Evening Batches:**
+- 4:00 PM – 5:00 PM
+- 5:00 PM – 6:00 PM
+- 6:00 PM – 7:00 PM
+- 7:00 PM – 8:00 PM
+
+**Note:**
+- Instructor allocation depends on the batch timing you choose.
+- Classes are held Monday to Friday, 5 days a week.
+- These classes are suitable for beginners to advanced levels.
+- All classes are conducted live and interactively, with recorded sessions possibly available for revision.
+
+Would you like to select a specific timing or instructor? Once you decide, I can guide you to the next step! 😊",62.94,NEW,SUCCESS
+24,919800000024,5 6 pm,200,12166.81,"You’ve selected the 5:00–6:00 PM evening batch with Instructor Sonali Dhote. 😊
+
+Would you like to proceed with this timing and choose a package duration?",74.19,TIMING_SELECTED,SUCCESS
+25,919800000025,What are the fees?,200,12179.81,"Hello! 😊 The fees for our online Yoga courses at Sensationz Yoga are:
+
+- 1 Month: ₹700
+- 3 Months: ₹1,750
+- 6 Months: ₹3,200
+- 1 Year: ₹5,000
+
+All classes are conducted online through the Sensationz App, so you can join from anywhere in the world! 🌍
+
+Would you like to know about the batch timings or how to enroll? 🧘‍♀️✨",33.96,NEW,SUCCESS
+26,919800000026,Do you have a demo class video?,200,12184.55,"Hello! 😊 Yes, we do have demo class videos to give you a preview of our classes. Here are the links:
+
+- Trainer Suman: https://youtu.be/IiVVdu4NkwI?si=leLgCK40Uo5Qhr0V
+- Trainer Priya Mathur: https://youtu.be/dyokiCXRs2Q
+
+Would you like to know more about our classes or how to enroll?",48.97,NEW,SUCCESS
+27,919800000027,3 months,200,12189.7,"Thank you for confirming! 😊
+
+To complete your enrollment, please download the Sensationz App from these links:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+After installing the app and creating your profile, just let me know so I can activate your special welcome discount coupon 🎁.",11.97,NEW,SUCCESS
+28,919800000028,1 year package,200,12197.54,"Hello! 😊 The 1-year yoga package at Sensationz is priced at ₹5,000. 
+
+To confirm your enrollment, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.
+
+Please download the app here:
+
+📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev  
+🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+
+Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!",41.88,NEW,SUCCESS
+29,919800000029,Is this online live on Zoom?,200,12175.67,"Hello! 😊 To clarify, our online live yoga classes are conducted through the Sensationz App, not on Zoom. 🧘‍♀️✨
+
+All classes are live, interactive, and conducted via our app, where you can ask questions, get posture corrections, and practice in real time. If you'd like, I can share demo videos of our classes or guide you on how to enroll. Just let me know!",63.97,ENROLL_ASKED,SUCCESS
+30,919800000030,Teacher details kya hai?,200,12193.57,"Hello! 😊  
+Sensationz Yoga ke instructors mein shamil hain:  
+- Jagriti  
+- Suman  
+- Priya  
+- Mradula  
+- Sonali Dhote  
+- Prachi (Jagriti ke during August)  
+- Nidhi  
+
+Aap kis instructor ke saath classes lena chahte hain, ya unke timings ke baare mein jaankari chahiye?  
+Main aapki madad ke liye yahan hoon! ✨",69.6,NEW,SUCCESS

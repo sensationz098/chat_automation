@@ -78,9 +78,12 @@ def clear_escalation(phone: str):
     state["is_escalated"] = False
 
 
-# =============================================================================
-# SESSION STATE MANAGEMENT FUNCTIONS
-# =============================================================================
+import json
+from redis_client import get_redis_connection
+
+redis_conn = get_redis_connection()
+STATE_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days persistence across restarts
+
 
 def get_default_state(phone: str) -> dict:
     """
@@ -96,50 +99,72 @@ def get_default_state(phone: str) -> dict:
         "app_installed": False,       # Boolean flag indicating if user installed the Sensationz App
         "profile_created": False,     # Boolean flag indicating if user created an in-app profile
         "coupon_sent": False,         # Boolean flag indicating if welcome coupon code was delivered
-        "is_escalated": False         # Escalation flag to hand off to human agent
+        "is_escalated": False,        # Escalation flag to hand off to human agent
+        "low_confidence_count": 0     # Consecutive unanswered / low-confidence query count
     }
 
 
 def get_user_state(phone: str) -> dict:
     """
-    Retrieves the active session state dictionary for a specific phone number.
-    Uses in-memory cache first, falling back to Supabase database.
+    Retrieves active session state dictionary for a phone number.
+    Checks memory cache -> Redis persistence -> Supabase DB -> Default initial state.
+    Guarantees state is preserved even after server restarts.
     """
-    # 1. Return in-memory cached state if present for fast performance
+    # 1. Check in-memory cache
     if phone in _memory_sessions:
         return _memory_sessions[phone]
 
-    # 2. Otherwise initialize default new user state
+    # 2. Check Redis cache (persists across server restarts)
     state = get_default_state(phone)
+    redis_key = f"user_state:{phone}"
+    try:
+        raw_state = redis_conn.get(redis_key)
+        if raw_state:
+            cached_dict = json.loads(raw_state)
+            state.update(cached_dict)
+            _memory_sessions[phone] = state
+            return state
+    except Exception as e:
+        print(f"[chat_state] Redis get_user_state read failed (non-fatal): {e}")
+
+    # 3. Fallback to Supabase database lookup
     if supabase:
         try:
-            # Attempt fetching existing state from cloud Supabase table
             res = supabase.table("user_session_state").select("*").eq("phone", phone).limit(1).execute()
             if res.data and len(res.data) > 0:
-                data = res.data[0]
-                state.update(data)
+                state.update(res.data[0])
         except Exception as e:
-            # Graceful fallback to default in-memory state if table isn't created yet
-            pass
+            print(f"[chat_state] Supabase get_user_state read failed: {e}")
 
-    # Store state in memory dictionary under customer's unique phone number key
+    # Save to Redis & memory cache for future fast reads
     _memory_sessions[phone] = state
+    try:
+        redis_conn.setex(redis_key, STATE_CACHE_TTL, json.dumps(state))
+    except Exception:
+        pass
+
     return state
 
 
 def save_user_state(phone: str, state: dict):
     """
-    Persists updated session state dictionary for a specific phone number.
+    Persists updated session state dictionary across Memory, Redis, and Supabase.
     """
-    # Update in-memory session dictionary
     _memory_sessions[phone] = state
+    redis_key = f"user_state:{phone}"
+
+    # Persist in Redis across restarts
+    try:
+        redis_conn.setex(redis_key, STATE_CACHE_TTL, json.dumps(state))
+    except Exception as e:
+        print(f"[chat_state] Redis save_user_state failed (non-fatal): {e}")
+
+    # Persist in Supabase DB
     if supabase:
         try:
-            # Upsert into Supabase database table
             supabase.table("user_session_state").upsert(state).execute()
         except Exception as e:
-            # Silently fallback to in-memory store if DB is unreachable
-            pass
+            print(f"[chat_state] Supabase save_user_state failed: {e}")
 
 
 def is_user_asking_question(text: str) -> bool:
@@ -186,7 +211,7 @@ def is_user_asking_question(text: str) -> bool:
 def extract_and_update_slots(phone: str, text: str) -> dict:
     """
     Analyzes incoming user message, extracts batch timing or package selection,
-    and updates funnel stage (NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED...).
+    and updates funnel stage (NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED -> PACKAGE_ASKED -> READY_FOR_APP_LINK).
     """
     # Retrieve current session state for this phone number
     state = get_user_state(phone)
@@ -196,74 +221,78 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
     # Keywords for initial contact vs confirmation vs slots
     is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
     is_yoga_keyword = any(w in text_lower for w in ["yoga", "yog", "yaga", "yogi", "yoga classes", "online yoga", "yoga details", "yoga course"])
-    is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan"])
+    is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "proceed"])
 
     # Stage 0: Initial Greeting & Enrollment Confirmation Check
     if state["stage"] == "NEW":
         if is_confirmation and not is_q:
             state["stage"] = "ENROLL_CONFIRMED"
+            state["timing"] = None
+            state["package"] = None
+            state["fee"] = None
         elif is_greeting or is_yoga_keyword:
             state["stage"] = "ENROLL_ASKED"
+            state["timing"] = None
+            state["package"] = None
+            state["fee"] = None
     elif state["stage"] == "ENROLL_ASKED":
         if is_confirmation and not is_q:
             state["stage"] = "ENROLL_CONFIRMED"
+            state["timing"] = None
+            state["package"] = None
+            state["fee"] = None
 
     # --- 1. Detect Batch Timing Slot ---
-    if any(t in text_lower for t in ["10-11am", "10-11 am", "10 to 11", "10:00", "10 am", "10am"]):
-        state["timing"] = "10:00–11:00 AM"
-    elif any(t in text_lower for t in ["12-1pm", "12-1 pm", "12 to 1", "12:00", "12 pm", "12pm"]):
-        state["timing"] = "12:00–1:00 PM"
-    elif any(t in text_lower for t in ["6-7am", "6-7 am", "6 to 7 am", "6:00 am", "6:00am"]):
-        state["timing"] = "6:00–7:00 AM"
-    elif any(t in text_lower for t in ["7-8am", "7-8 am", "7 to 8 am", "7:00 am", "7:00am"]):
-        state["timing"] = "7:00–8:00 AM"
-    elif any(t in text_lower for t in ["8-9am", "8-9 am", "8 to 9 am", "8:00 am", "8:00am"]):
-        state["timing"] = "8:00–9:00 AM"
-    elif any(t in text_lower for t in ["4-5pm", "4-5 pm", "4 to 5", "4:00 pm", "4:00pm"]):
-        state["timing"] = "4:00–5:00 PM"
-    elif any(t in text_lower for t in ["5-6pm", "5-6 pm", "5 to 6", "5:00 pm", "5:00pm"]):
+    if any(t in text_lower for t in ["5 6 pm", "5-6 pm", "5-6pm", "5 to 6", "5:00 pm", "5pm", "5 pm"]):
         state["timing"] = "5:00–6:00 PM"
-    elif any(t in text_lower for t in ["6-7pm", "6-7 pm", "6 to 7 pm", "6:00 pm", "6:00pm"]):
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["6 7 pm", "6-7 pm", "6-7pm", "6 to 7 pm", "6:00 pm", "6pm", "6 pm"]):
         state["timing"] = "6:00–7:00 PM"
-    elif any(t in text_lower for t in ["7-8pm", "7-8 pm", "7 to 8 pm", "7:00 pm", "7:00pm"]):
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["7 8 pm", "7-8 pm", "7-8pm", "7 to 8 pm", "7:00 pm", "7pm", "7 pm"]):
         state["timing"] = "7:00–8:00 PM"
-    elif "6-7" in text_lower and not is_q:
-        state["timing"] = "6:00–7:00 AM"
-    elif "7-8" in text_lower and not is_q:
-        state["timing"] = "7:00–8:00 AM"
-    elif "8-9" in text_lower and not is_q:
-        state["timing"] = "8:00–9:00 AM"
-    elif "10-11" in text_lower and not is_q:
-        state["timing"] = "10:00–11:00 AM"
-    elif "12-1" in text_lower and not is_q:
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["4 5 pm", "4-5 pm", "4-5pm", "4 to 5", "4:00 pm", "4pm", "4 pm"]):
+        state["timing"] = "4:00–5:00 PM"
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["12 1 pm", "12-1 pm", "12-1pm", "12 to 1", "12:00", "12pm", "12 pm"]):
         state["timing"] = "12:00–1:00 PM"
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["6 7 am", "6-7 am", "6-7am", "6 to 7 am", "6:00 am", "6am", "6 am"]):
+        state["timing"] = "6:00–7:00 AM"
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["7 8 am", "7-8 am", "7-8am", "7 to 8 am", "7:00 am", "7am", "7 am"]):
+        state["timing"] = "7:00–8:00 AM"
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["8 9 am", "8-9 am", "8-9am", "8 to 9 am", "8:00 am", "8am", "8 am"]):
+        state["timing"] = "8:00–9:00 AM"
+        state["stage"] = "TIMING_SELECTED"
+    elif any(t in text_lower for t in ["10 11 am", "10-11 am", "10-11am", "10 to 11", "10:00 am", "10am", "10 am"]):
+        state["timing"] = "10:00–11:00 AM"
+        state["stage"] = "TIMING_SELECTED"
 
     # --- 2. Detect Package / Duration Slot ---
-    if any(p in text_lower for p in ["1 year", "yearly", "1yr", "1 y", "5000", "₹5000", "5,000", "₹5,000"]):
-        state["package"] = "1 Year"
-        state["fee"] = "₹5,000"
-    elif any(p in text_lower for p in ["6 month", "6m", "3200", "₹3200", "3,200", "₹3,200"]):
-        state["package"] = "6 Months"
-        state["fee"] = "₹3,200"
-    elif any(p in text_lower for p in ["3 month", "3m", "1750", "₹1750", "1,750", "₹1,750"]):
-        state["package"] = "3 Months"
-        state["fee"] = "₹1,750"
-    elif any(p in text_lower for p in ["1 month", "1m", "700", "₹700"]):
-        state["package"] = "1 Month"
-        state["fee"] = "₹700"
+    if state.get("timing") or state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED"]:
+        if text_lower in ["3", "3m", "3 month", "3 months", "three"] or any(p in text_lower for p in ["3 month", "1750", "₹1750", "1,750"]):
+            state["package"] = "3 Months"
+            state["fee"] = "₹1,750"
+            state["stage"] = "READY_FOR_APP_LINK"
+        elif text_lower in ["1", "1m", "1 month", "one"] or any(p in text_lower for p in ["1 month", "700", "₹700"]):
+            state["package"] = "1 Month"
+            state["fee"] = "₹700"
+            state["stage"] = "READY_FOR_APP_LINK"
+        elif text_lower in ["6", "6m", "6 month", "6 months", "six"] or any(p in text_lower for p in ["6 month", "3200", "₹3200", "3,200"]):
+            state["package"] = "6 Months"
+            state["fee"] = "₹3,200"
+            state["stage"] = "READY_FOR_APP_LINK"
+        elif text_lower in ["12", "1 year", "1yr", "1y", "yearly"] or any(p in text_lower for p in ["1 year", "5000", "₹5000", "5,000"]):
+            state["package"] = "1 Year"
+            state["fee"] = "₹5,000"
+            state["stage"] = "READY_FOR_APP_LINK"
 
-    # --- 3. Determine Stage Transition ---
-    if state["timing"] and state["package"]:
-        if not state["profile_created"] and not is_q:
-            if state["stage"] in ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED", "TIMING_SELECTED", "PACKAGE_SELECTED", "APP_LINK_SENT"]:
-                if any(w in text_lower for w in ["yes", "enroll", "join", "confirm", "proceed", "link", "app", "ok", "sure"]) or state["stage"] != "APP_LINK_SENT":
-                    state["stage"] = "READY_FOR_APP_LINK"
-    elif state["timing"] and not state["package"]:
-        if state["stage"] in ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED"]:
-            state["stage"] = "TIMING_SELECTED"
-    elif state["package"] and not state["timing"]:
-        if state["stage"] in ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED"]:
-            state["stage"] = "PACKAGE_SELECTED"
+    # Stage Transition when user confirms timing -> ask for package duration
+    if state["stage"] == "TIMING_SELECTED" and is_confirmation and not is_q and not state.get("package"):
+        state["stage"] = "PACKAGE_ASKED"
 
     # --- 4. Detect App Install & Profile Completion ---
     if state["stage"] in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
