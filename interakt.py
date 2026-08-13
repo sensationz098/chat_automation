@@ -120,3 +120,55 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     computed = "sha256=" + hmac.new(INTERAKT_WEBHOOK_SECRET.encode(), payload, sha256).hexdigest()
     return computed == signature
 
+# interakt.py
+
+# import requests
+
+# BASE_URL = "https://api.interakt.ai/v1"
+
+
+# def _headers():
+#     return {
+#         "Authorization": "Bearer YOUR_INTERAKT_API_KEY",
+#         "Content-Type": "application/json",
+#     }
+
+
+# def send_typing(phone: str) -> bool:
+#     """
+#     Starter function for a typing indicator.
+
+#     IMPORTANT:
+#     Replace TYPING_ENDPOINT with the actual Interakt endpoint
+#     if your Interakt API account supports typing indicators.
+#     """
+#     payload = {
+#         "phone_number": phone
+#     }
+
+#     try:
+#         response = requests.post(
+#             f"{BASE_URL}/TYPING_ENDPOINT",
+#             headers=_headers(),
+#             json=payload,
+#             timeout=5,
+#         )
+
+#         print("[interakt] typing:", response.status_code, response.text)
+
+#         return response.ok
+
+#     except Exception as e:
+#         print("[interakt] typing error:", e)
+#         return False
+
+
+# Incoming WhatsApp message
+
+# send_typing(phone)
+
+# # Your existing AI processing
+# ai_response = get_ai_response(message)
+
+# # Your existing Interakt send-message function
+# send_message(phone, ai_response)

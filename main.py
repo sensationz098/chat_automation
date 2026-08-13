@@ -31,22 +31,15 @@ from chat_state import (
 from batching import add_message_to_batch, add_message_to_batch_async
 from upstash_redis import Redis
 from redis_client import get_redis_connection
+from tasks import is_target_ad_or_message
 load_dotenv()
 
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],   # fine for local testing; restrict before real production use
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 redis_conn = get_redis_connection()
 job_queue = Queue("interakt_messages", connection=redis_conn)
 
 _phone_locks: dict[str, asyncio.Lock] = {}
-
 
 def _get_lock_for_phone(phone: str) -> asyncio.Lock:
     if phone not in _phone_locks:
@@ -65,16 +58,15 @@ PRIORITY_AGENT_EMAIL_ANOTHER = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER")
 
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 
-PAYMENT_QR_IMAGE_URL = os.getenv("PAYMENT_QR_IMAGE_URL")
-PAYMENT_CAPTION = """Bank details:\n Sensationz media and arts pvt ltd \n Ac no 051863300000382"""
-
+TARGET_MESSAGE_TEXT = "hello! can i get more info on yoga classes?"
 # --- Endpoints ------------------------------------------------------
-
+TARGET_CAMPAIGN_ID = os.getenv("TARGET_CAMPAIGN_ID")
+TARGET_AD_ID = os.getenv("TARGET_AD_ID")
+TARGET_TEXT = "hello! can i get more info on yoga classes?"
 @app.get("/chat-history/{phone}")
 async def view_chat_history(phone: str):
     """GET /chat-history/919876543210 — full conversation for a customer."""
     return get_full_history_for_agent(phone)
-
 
 @app.post("/webhook")
 async def receive_interakt_webhook(request: Request):
@@ -127,9 +119,10 @@ async def receive_interakt_webhook(request: Request):
     if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453" and phone != "919310795634" and phone != "917678368328":
         print(f"Ignoring message from {phone} — not the allowed test number.")
         return {"status": "ignored, not test number"}
+    referral = message.get("referral", {})
     # Enqueue message into Redis batch queue for async worker execution (handles 500+ concurrent requests)
     try:
-        add_message_to_batch(phone, text)
+        await add_message_to_batch_async(phone, text, referral=referral)
         return {"status": "ok", "message": "enqueued"}
     except Exception as e:
         print(f"[main.py] Redis enqueueing failed ({e}) — processing synchronously as fallback.")
@@ -141,6 +134,11 @@ async def receive_interakt_webhook(request: Request):
                 print(f"[main.py] Failed to fetch history for {phone}: {ex}")
                 history = []
 
+            is_target = is_target_ad_or_message(text, referral)
+            if not is_target:
+                print(f"[main.py] {phone}: Ad/Message not targeted. AI ignores and chat remains unassigned.")
+                return {"status": "ignored, not matching target ad"}
+
             try:
                 save_message(phone, "user", text)
             except Exception as ex:
@@ -151,12 +149,21 @@ async def receive_interakt_webhook(request: Request):
                 return {"status": "escalated, bot not responding"}
 
             if PRIORITY_AGENT_EMAIL:
+                print(f"[main.py] Assigning chat for {phone} to target priority agent: {PRIORITY_AGENT_EMAIL}")
                 assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL)
 
             text_lower = text.lower()
 
             if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
                 return handle_agent_handoff(phone)
+
+            # Check for static offer reply first
+            if text.strip().lower() == TARGET_MESSAGE_TEXT:
+                reply = "Thanks this is our offer for our yoga classes"
+                send_text_message(phone, reply)
+                save_message(phone, "assistant", reply)
+                log_message(phone, "ai", reply)
+                return {"status": "offer sent"}
 
             return handle_ai_reply(phone, text, history)
 
@@ -187,8 +194,9 @@ async def receive_test_webhook(request: Request):
         phone = phone_num or str(customer.get("channel_phone_number", ""))
 
     text = message.get("message", "")
+    referral = message.get("referral", {})  # Extract referral metadata
 
-    print(f"[test-webhook] Message from {phone}: {text}")
+    print(f"[test-webhook] Message from {phone}: {text} | Referral: {referral}")
     log_message(phone, "user", text)
 
     # Optional test environment filter
@@ -197,7 +205,8 @@ async def receive_test_webhook(request: Request):
         return {"status": "ignored, not test number"}
 
     try:
-        add_message_to_batch(phone, text)
+        # Pass referral dictionary along with phone & text to Redis batch queue
+        await add_message_to_batch_async(phone, text, referral=referral)
         return {"status": "ok", "message": "enqueued"}
     except Exception as e:
         print(f"[test-webhook] Redis enqueueing failed ({e}) — processing synchronously as fallback.")
@@ -206,7 +215,12 @@ async def receive_test_webhook(request: Request):
             try:
                 history = get_recent_history(phone)
             except Exception as ex:
-                    history = []
+                history = []
+
+            is_target = is_target_ad_or_message(text, referral)
+            if not is_target:
+                print(f"[test-webhook] {phone}: Ad/Message not targeted. AI ignores and chat remains unassigned.")
+                return {"status": "ignored, not matching target ad"}
 
             try:
                 save_message(phone, "user", text)
@@ -217,6 +231,7 @@ async def receive_test_webhook(request: Request):
                 return {"status": "escalated, bot not responding"}
 
             if PRIORITY_AGENT_EMAIL:
+                print(f"[test-webhook] Assigning chat for {phone} to target priority agent: {PRIORITY_AGENT_EMAIL}")
                 assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL)
 
             text_lower = text.lower()
@@ -224,12 +239,17 @@ async def receive_test_webhook(request: Request):
             if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
                 return handle_agent_handoff(phone)
 
+            # Check for static offer reply first
+            if text.strip().lower() == TARGET_MESSAGE_TEXT:
+                reply = "Thanks this is our offer for our yoga classes"
+                send_text_message(phone, reply)
+                save_message(phone, "assistant", reply)
+                log_message(phone, "ai", reply)
+                return {"status": "offer sent"}
+
             return handle_ai_reply(phone, text, history)
 
 # --- Intent handlers --------------------------------------------------
-
-
-
 def handle_agent_handoff(phone: str):
     print(f"Agent requested by {phone} — re-assigning to escalation agent...")
 
@@ -254,7 +274,7 @@ def handle_agent_handoff(phone: str):
 def handle_ai_reply(phone: str, text: str, history: list):
     # Check for specific Ad pre-filled message trigger
     if text.strip().lower() == "hello! can i get more info on yoga classes?":
-        reply = "Thanks this is our offer for our yoga classes"
+        reply = "Hi Sir/Mam, Welcome to Sensationz Media and arts, How i can help u?"
         send_text_message(phone, reply)
         save_message(phone, "assistant", reply)
         log_message(phone, "ai", reply)

@@ -17,17 +17,21 @@ import csv
 import random
 import asyncio
 import httpx
+import os
+from dotenv import load_dotenv
 from redis_client import get_redis_connection
-import concurrent.futures
-from rag import ask_rag
 from chat_state import get_user_state
 
+load_dotenv()
 redis_conn = get_redis_connection()
 
 DEFAULT_WEBHOOK_URL = "http://localhost:8000/test-webhook"
 NUM_USERS = int(sys.argv[1]) if len(sys.argv) > 1 else 100
 WEBHOOK_URL = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_WEBHOOK_URL
 OUTPUT_CSV_FILE = "test_results_100_users.csv"
+
+TARGET_AD_ID = os.getenv("TARGET_AD_ID") or "123456789"
+TARGET_TEXT = "hello! can i get more info on yoga classes?"
 
 SAMPLE_MESSAGES = [
     "Hi",
@@ -40,13 +44,39 @@ SAMPLE_MESSAGES = [
     "1 year package",
     "Is this online live on Zoom?",
     "Teacher details kya hai?",
+    "hello! can i get more info on yoga classes?"
 ]
+
+def is_simulated_target_ad(user_id: int, message_text: str) -> bool:
+    """Returns True if this simulated user is targeted (odd user_id or matching text)."""
+    if message_text.strip().lower() == TARGET_TEXT:
+        return True
+    return user_id % 2 == 1
 
 
 def generate_payload(user_id: int) -> tuple[dict, str, str]:
     """Generates an Interakt-compliant webhook payload for a unique simulated phone number."""
     phone_number = f"919800{user_id:06d}"  # Unique phone: 919800000001, 919800000002...
-    message_text = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
+    
+    # Let some messages match TARGET_TEXT exactly
+    if user_id % 5 == 0:
+        message_text = "Hello! Can I get more info on Yoga classes?"
+    else:
+        message_text = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
+
+    # Odd user IDs simulate target ad referrals, even user IDs simulate other non-target ads
+    if is_simulated_target_ad(user_id, message_text):
+        referral = {
+            "source_id": TARGET_AD_ID,
+            "source_type": "ad",
+            "source_url": f"https://fb.com/l.php?ad_id={TARGET_AD_ID}"
+        }
+    else:
+        referral = {
+            "source_id": "999999999_wrong_ad",
+            "source_type": "ad",
+            "source_url": "https://fb.com/l.php?ad_id=999999999_wrong_ad"
+        }
 
     payload = {
         "type": "message_received",
@@ -57,7 +87,8 @@ def generate_payload(user_id: int) -> tuple[dict, str, str]:
                 "channel_phone_number": phone_number
             },
             "message": {
-                "message": message_text
+                "message": message_text,
+                "referral": referral
             }
         }
     }
@@ -116,7 +147,7 @@ def check_ai_response(phone: str) -> dict | None:
 
 
 async def monitor_e2e_ai_completion(webhook_results: list[dict], timeout_sec: float = 120.0) -> dict[str, dict]:
-    """Polls Redis history in real-time until all AI responses complete, computing accurate latency."""
+    """Polls Redis history in real-time until targeted AI responses complete, computing accurate latency."""
     print("\n" + "=" * 65)
     print("⚙️ PHASE 2: Monitoring End-to-End AI Generation Across Background Workers...")
     print("=" * 65)
@@ -125,7 +156,16 @@ async def monitor_e2e_ai_completion(webhook_results: list[dict], timeout_sec: fl
     completed_ai_responses = {}
     
     phone_sent_times = {r["phone"]: r["sent_at"] for r in webhook_results if r["status_code"] == 200}
-    pending_phones = set(phone_sent_times.keys())
+    
+    # We only monitor and wait for phone numbers that originate from the Target Ad or match the Target Text
+    target_phones = {
+        r["phone"]
+        for r in webhook_results
+        if r["status_code"] == 200 and is_simulated_target_ad(r["user_id"], r["user_message"])
+    }
+    pending_phones = set(target_phones)
+
+    print(f"Waiting for {len(pending_phones)} target ad users to receive replies. (Ignored users will not be checked).")
 
     last_report_count = 0
 
@@ -155,7 +195,7 @@ async def monitor_e2e_ai_completion(webhook_results: list[dict], timeout_sec: fl
         current_completed = len(completed_ai_responses)
         if current_completed > last_report_count:
             elapsed = time.time() - start_monitor_time
-            print(f" ⌛ Progress: [{current_completed}/{len(phone_sent_times)}] AI Responses Completed ({elapsed:.1f}s elapsed)...")
+            print(f" ⌛ Progress: [{current_completed}/{len(target_phones)}] AI Responses Completed ({elapsed:.1f}s elapsed)...")
             last_report_count = current_completed
 
         if pending_phones:
@@ -183,7 +223,8 @@ def save_test_results_to_csv(webhook_results: list[dict], ai_results: dict[str, 
         phone = item["phone"]
         user_id = item["user_id"]
         ai_data = ai_results.get(phone)
-        
+        is_target = is_simulated_target_ad(user_id, item["user_message"])
+
         try:
             state = get_user_state(phone)
             stage = state.get("stage", "UNKNOWN")
@@ -194,6 +235,10 @@ def save_test_results_to_csv(webhook_results: list[dict], ai_results: dict[str, 
             status = "SUCCESS"
             reply = ai_data.get("reply", "")
             resp_time = ai_data.get("response_time_sec")
+        elif not is_target:
+            status = "IGNORED (Correctly skipped by Ad Routing)"
+            reply = ""
+            resp_time = None
         else:
             status = "FAILED/TIMEOUT" if item["status_code"] == 200 else "WEBHOOK_FAILED"
             reply = ""
@@ -265,9 +310,8 @@ async def run_e2e_load_test():
     print("=" * 65)
     print(f" 📥 Simultaneous Users      : {NUM_USERS}")
     print(f" ✅ Webhooks Accepted (200 OK): {len(successful_webhooks)}")
-    print(f" 🤖 AI Responses Completed  : {len(ai_results)} / {NUM_USERS}")
+    print(f" 🤖 AI Responses Completed  : {len(ai_results)} / {NUM_USERS // 2 + (1 if NUM_USERS % 2 != 0 else 0)}")
     print(f" ⏱️ End-to-End Total Time   : {total_e2e_time:.2f} seconds")
-    print(f" 🚀 E2E AI Throughput       : {len(ai_results) / total_e2e_time:.2f} AI replies/sec")
     print("-" * 65)
     if latencies:
         print(f" ⚡ Average AI Generation Time: {avg_latency:.2f} seconds")
@@ -278,21 +322,25 @@ async def run_e2e_load_test():
     # Print Sample AI Responses
     print("\n💬 SAMPLE AI RESPONSES GENERATED UNDER LOAD:")
     print("-" * 65)
-    sample_items = list(ai_results.items())[:NUM_USERS]
-    for i, (phone, data) in enumerate(sample_items, 1):
-        user_msg = next((r["user_message"] for r in webhook_results if r["phone"] == phone), "")
-        lat_val = data.get("response_time_sec")
-        lat_str = f"{lat_val:.2f}s" if (lat_val is not None) else "N/A"
-        # print(f"Sample {i} [{phone}]:")
-        print(f"  User Message: \"{user_msg}\"")
-        print(f"  AI Reply    : \"{data['reply']}\"")
-        print(f"  Latency     : {lat_str}")
+    
+    # Print samples, selecting some target and some ignored
+    sample_phones = [r["phone"] for r in webhook_results[:5]]
+    for i, phone in enumerate(sample_phones, 1):
+        item = next(r for r in webhook_results if r["phone"] == phone)
+        data = ai_results.get(phone)
+        is_target = is_simulated_target_ad(item["user_id"], item["user_message"])
+        
+        print(f"Sample {i} [{phone}]:")
+        print(f"  User Message: \"{item['user_message']}\"")
+        if is_target:
+            if data and data.get("reply"):
+                print(f"  AI Reply    : \"{data['reply']}\"")
+                print(f"  Latency     : {data.get('response_time_sec'):.2f}s")
+            else:
+                print("  AI Reply    : (Timeout/Error)")
+        else:
+            print("  AI Reply    : (Ignored - Not matching Target Ad)")
         print("-" * 65)
-
-    if len(ai_results) == NUM_USERS:
-        print(f"\n🎉 SUCCESS! All {NUM_USERS} AI responses were generated & processed end-to-end under load!")
-    else:
-        print(f"\n⚠️ Completed {len(ai_results)} out of {NUM_USERS} AI responses. Make sure worker.py / run_workers.py is running!")
 
 
 if __name__ == "__main__":

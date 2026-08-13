@@ -83,5 +83,3 @@ if __name__ == "__main__":
             if poll is not None:  # Process ended or crashed
                 print(f"⚠️ Worker {i + 1} (PID {p.pid}) exited with code {poll}. Restarting...")
                 processes[i] = start_worker(i)
-
-
