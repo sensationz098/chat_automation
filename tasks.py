@@ -41,7 +41,8 @@ redis_conn = get_redis_connection()
 
 # Default and escalation agent emails configured in environment variables
 PRIORITY_AGENT_EMAIL = os.getenv("PRIORITY_AGENT_EMAIL")
-PRIORITY_AGENT_EMAIL_ANOTHER = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER")
+PRIORITY_AGENT_EMAIL_ANOTHER_1 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_1")
+PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
 
 # Words that trigger immediate human agent handoff
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
@@ -122,8 +123,8 @@ def handle_agent_handoff(phone: str, start_time: float = None):
 
     reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
 
-    if PRIORITY_AGENT_EMAIL_ANOTHER:
-        assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL_ANOTHER)
+    if PRIORITY_AGENT_EMAIL_ANOTHER_1:
+        assign_chat_to_agent(phone, PRIORITY_AGENT_EMAIL_ANOTHER_1)
         send_text_message(phone, reply)
         mark_escalated(phone)
         log_message(phone, "agent", reply)
