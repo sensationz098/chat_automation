@@ -44,6 +44,12 @@ PRIORITY_AGENT_EMAIL = os.getenv("PRIORITY_AGENT_EMAIL")
 PRIORITY_AGENT_EMAIL_ANOTHER_1 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_1")
 PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
 
+PRIORITY_AGENT_EMAILS = [
+    PRIORITY_AGENT_EMAIL_ANOTHER_1,
+    PRIORITY_AGENT_EMAIL_ANOTHER_2,
+]
+
+_current_agent_index = 0
 # Words that trigger immediate human agent handoff
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 
