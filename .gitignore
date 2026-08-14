@@ -3,6 +3,10 @@ venv/
 .venv/
 __pycache__/
 *.pyc
-test_send.py
-log.py
 ngrok.exe
+chat_data.csv
+test_results_*.csv
+*.log
+archive/
+Sensationz Medias.pdf
+Sensationz-media-and-arts-pvt-ltd.jpeg

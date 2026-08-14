@@ -7,18 +7,30 @@ ever changes their API, you only touch this one file.
 
 import os
 import hmac
+import time
 from hashlib import sha256
-import requests
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 INTERAKT_API_KEY = os.getenv("INTERAKT_API_KEY")
 INTERAKT_WEBHOOK_SECRET = os.getenv("INTERAKT_WEBHOOK_SECRET")
 
 BASE_URL = "https://api.interakt.ai/v1/public"
+
+# Module-level async HTTP client with connection pooling for performance
+_async_client = None
+
+def _get_async_client() -> httpx.AsyncClient:
+    """Returns a singleton async HTTP client with connection pooling."""
+    global _async_client
+    if _async_client is None or _async_client.is_closed:
+        _async_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+        )
+    return _async_client
 
 
 def _headers():
@@ -27,14 +39,11 @@ def _headers():
         "Content-Type": "application/json",
     }
 
-# TEST_MODE = True
 
 def _split_phone(phone_with_country_code: str):
     """
-    Splits a number like "917003705584" (as Interakt sends it in
-    data.customer.channel_phone_number) into country code + number.
-    NOTE: assumes a 2-digit country code -- adjust if you support
-    countries with 1 or 3-digit codes.
+    Splits a number like "917003705584" into country code + number.
+    NOTE: assumes a 2-digit country code.
     """
     country_code = "+" + phone_with_country_code[:2]
     number = phone_with_country_code[2:]
@@ -42,7 +51,10 @@ def _split_phone(phone_with_country_code: str):
 
 
 def send_text_message(phone: str, message: str):
-    """phone: e.g. "917003705584" (country code + number, no '+')."""
+    """
+    Synchronous text message sender (used from sync contexts).
+    phone: e.g. "917003705584" (country code + number, no '+').
+    """
     country_code, number = _split_phone(phone)
     payload = {
         "countryCode": country_code,
@@ -50,21 +62,61 @@ def send_text_message(phone: str, message: str):
         "type": "Text",
         "data": {"message": message},
     }
+    t0 = time.perf_counter()
     try:
-        response = requests.post(f"{BASE_URL}/message/", headers=_headers(), json=payload, timeout=5)
-        print("[interakt] send_text_message:", response.status_code, response.text)
+        response = httpx.post(
+            f"{BASE_URL}/message/",
+            headers=_headers(),
+            json=payload,
+            timeout=10.0,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message: {response.status_code} ({elapsed:.2f}s)")
         return response
+    except httpx.TimeoutException:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message TIMEOUT after {elapsed:.2f}s")
+        return None
     except Exception as e:
-        print(f"[interakt] send_text_message error (handled): {e}")
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message error ({elapsed:.2f}s): {e}")
         return None
 
+
+async def send_text_message_async(phone: str, message: str):
+    """
+    Async text message sender — non-blocking, uses connection pooling.
+    """
+    country_code, number = _split_phone(phone)
+    payload = {
+        "countryCode": country_code,
+        "phoneNumber": number,
+        "type": "Text",
+        "data": {"message": message},
+    }
+    t0 = time.perf_counter()
+    try:
+        client = _get_async_client()
+        response = await client.post(
+            f"{BASE_URL}/message/",
+            headers=_headers(),
+            json=payload,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message_async: {response.status_code} ({elapsed:.2f}s)")
+        return response
+    except httpx.TimeoutException:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message_async TIMEOUT after {elapsed:.2f}s")
+        return None
+    except Exception as e:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message_async error ({elapsed:.2f}s): {e}")
+        return None
+
+
 def send_image_message(phone: str, media_url: str, caption: str = ""):
-    """
-    Sends an image with an optional caption -- e.g. a payment QR code,
-    a product photo, or a receipt.
-    phone: e.g. "917003705584"
-    media_url: a publicly reachable HTTPS URL to the image
-    """
+    """Sends an image with an optional caption."""
     country_code, number = _split_phone(phone)
     payload = {
         "countryCode": country_code,
@@ -76,30 +128,35 @@ def send_image_message(phone: str, media_url: str, caption: str = ""):
         },
     }
     try:
-        response = requests.post(f"{BASE_URL}/message/", headers=_headers(), json=payload, timeout=5)
-        print("[interakt] send_image_message:", response.status_code, response.text)
+        response = httpx.post(
+            f"{BASE_URL}/message/",
+            headers=_headers(),
+            json=payload,
+            timeout=10.0,
+        )
+        print(f"[interakt] send_image_message: {response.status_code}")
         return response
     except Exception as e:
-        print(f"[interakt] send_image_message error (handled): {e}")
+        print(f"[interakt] send_image_message error: {e}")
         return None
 
 
 def assign_chat_to_agent(phone: str, agent_email: str) -> bool:
     """
-    Returns True if the chat ends up assigned to this agent -- either
-    the call succeeded, or it was already assigned to them (Interakt
-    returns a 400 for that specific case, which isn't a real failure).
+    Returns True if the chat ends up assigned to this agent — either
+    the call succeeded, or it was already assigned to them.
     """
-    # if TEST_MODE:
-    #     print(
-    #         f"[TEST MODE] Skipping Interakt assignment "
-    #         f"for {phone}"
-    #     )
-    #     return True
     payload = {"user_phone_number": phone, "agent_email": agent_email}
+    t0 = time.perf_counter()
     try:
-        response = requests.post(f"{BASE_URL}/assignment/", headers=_headers(), json=payload, timeout=5)
-        print("[interakt] assign_chat_to_agent:", response.status_code, response.text)
+        response = httpx.post(
+            f"{BASE_URL}/assignment/",
+            headers=_headers(),
+            json=payload,
+            timeout=10.0,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] assign_chat_to_agent: {response.status_code} ({elapsed:.2f}s)")
 
         if response.status_code == 200:
             return True
@@ -110,65 +167,16 @@ def assign_chat_to_agent(phone: str, agent_email: str) -> bool:
         print(f"[interakt] Assignment genuinely failed: {response.status_code} {response.text}")
         return False
     except Exception as e:
-        print(f"[interakt] assign_chat_to_agent error (handled): {e}")
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] assign_chat_to_agent error ({elapsed:.2f}s): {e}")
         return False
 
+
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
-    """Verified against Interakt's own sample code for webhook security."""
+    """Verifies Interakt webhook signature for security."""
     if not INTERAKT_WEBHOOK_SECRET:
         return True   # signature checking disabled if no secret configured
-    computed = "sha256=" + hmac.new(INTERAKT_WEBHOOK_SECRET.encode(), payload, sha256).hexdigest()
-    return computed == signature
-
-# interakt.py
-
-# import requests
-
-# BASE_URL = "https://api.interakt.ai/v1"
-
-
-# def _headers():
-#     return {
-#         "Authorization": "Bearer YOUR_INTERAKT_API_KEY",
-#         "Content-Type": "application/json",
-#     }
-
-
-# def send_typing(phone: str) -> bool:
-#     """
-#     Starter function for a typing indicator.
-
-#     IMPORTANT:
-#     Replace TYPING_ENDPOINT with the actual Interakt endpoint
-#     if your Interakt API account supports typing indicators.
-#     """
-#     payload = {
-#         "phone_number": phone
-#     }
-
-#     try:
-#         response = requests.post(
-#             f"{BASE_URL}/TYPING_ENDPOINT",
-#             headers=_headers(),
-#             json=payload,
-#             timeout=5,
-#         )
-
-#         print("[interakt] typing:", response.status_code, response.text)
-
-#         return response.ok
-
-#     except Exception as e:
-#         print("[interakt] typing error:", e)
-#         return False
-
-
-# Incoming WhatsApp message
-
-# send_typing(phone)
-
-# # Your existing AI processing
-# ai_response = get_ai_response(message)
-
-# # Your existing Interakt send-message function
-# send_message(phone, ai_response)
+    computed = "sha256=" + hmac.HMAC(
+        INTERAKT_WEBHOOK_SECRET.encode(), payload, sha256
+    ).hexdigest()
+    return hmac.compare_digest(computed, signature)
