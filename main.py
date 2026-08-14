@@ -47,7 +47,7 @@ def _get_lock_for_phone(phone: str) -> asyncio.Lock:
     return _phone_locks[phone]
 
 # --- Config -------------------------------------------------------
-ALLOWED_TEST_NUMBERS = os.getenv("ALLOWED_TEST_NUMBERS")
+# ALLOWED_TEST_NUMBERS = os.getenv("ALLOWED_TEST_NUMBERS")
 
 # Every message gets assigned to this agent by default.
 PRIORITY_AGENT_EMAIL = os.getenv("PRIORITY_AGENT_EMAIL")
@@ -58,11 +58,11 @@ PRIORITY_AGENT_EMAIL_ANOTHER = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER")
 
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 
-TARGET_MESSAGE_TEXT = "hello! can i get more info on yoga classes?"
+TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "123456")
 # --- Endpoints ------------------------------------------------------
 TARGET_CAMPAIGN_ID = os.getenv("TARGET_CAMPAIGN_ID")
 TARGET_AD_ID = os.getenv("TARGET_AD_ID")
-TARGET_TEXT = "hello! can i get more info on yoga classes?"
+
 @app.get("/chat-history/{phone}")
 async def view_chat_history(phone: str):
     """GET /chat-history/919876543210 — full conversation for a customer."""
@@ -116,9 +116,9 @@ async def receive_interakt_webhook(request: Request):
     log_message(phone, "user", text)
 
     # Optional test environment filter: if ALLOWED_TEST_NUMBERS is set, ignore other numbers
-    if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453" and phone != "919310795634" and phone != "917678368328":
-        print(f"Ignoring message from {phone} — not the allowed test number.")
-        return {"status": "ignored, not test number"}
+    # if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453":
+    #     print(f"Ignoring message from {phone} — not the allowed test number.")
+    #     return {"status": "ignored, not test number"}
     referral = message.get("referral", {})
     # Enqueue message into Redis batch queue for async worker execution (handles 500+ concurrent requests)
     try:
@@ -134,10 +134,19 @@ async def receive_interakt_webhook(request: Request):
                 print(f"[main.py] Failed to fetch history for {phone}: {ex}")
                 history = []
 
-            is_target = is_target_ad_or_message(text, referral)
+            is_target = is_target_ad_or_message(text, referral, phone)
             if not is_target:
                 print(f"[main.py] {phone}: Ad/Message not targeted. AI ignores and chat remains unassigned.")
                 return {"status": "ignored, not matching target ad"}
+
+            # Persist target flag so subsequent messages skip the string check
+            try:
+                state = get_user_state(phone)
+                if not state.get("is_target_ad"):
+                    state["is_target_ad"] = True
+                    save_user_state(phone, state)
+            except Exception as ex:
+                print(f"[main.py] Failed to save target flag for {phone}: {ex}")
 
             try:
                 save_message(phone, "user", text)
@@ -199,10 +208,10 @@ async def receive_test_webhook(request: Request):
     print(f"[test-webhook] Message from {phone}: {text} | Referral: {referral}")
     log_message(phone, "user", text)
 
-    # Optional test environment filter
-    if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453" and phone != "919310795634" and phone != "917678368328" and not phone.startswith("919800"):
-        print(f"Ignoring message from {phone} — not the allowed test number.")
-        return {"status": "ignored, not test number"}
+    # # Optional test environment filter
+    # if ALLOWED_TEST_NUMBERS and phone != ALLOWED_TEST_NUMBERS and phone != "917361045453" and phone != "919310795634" and phone != "917678368328" and not phone.startswith("919800"):
+    #     print(f"Ignoring message from {phone} — not the allowed test number.")
+    #     return {"status": "ignored, not test number"}
 
     try:
         # Pass referral dictionary along with phone & text to Redis batch queue
@@ -217,10 +226,19 @@ async def receive_test_webhook(request: Request):
             except Exception as ex:
                 history = []
 
-            is_target = is_target_ad_or_message(text, referral)
+            is_target = is_target_ad_or_message(text, referral, phone)
             if not is_target:
                 print(f"[test-webhook] {phone}: Ad/Message not targeted. AI ignores and chat remains unassigned.")
                 return {"status": "ignored, not matching target ad"}
+
+            # Persist target flag so subsequent messages skip the string check
+            try:
+                state = get_user_state(phone)
+                if not state.get("is_target_ad"):
+                    state["is_target_ad"] = True
+                    save_user_state(phone, state)
+            except Exception as ex:
+                print(f"[test-webhook] Failed to save target flag for {phone}: {ex}")
 
             try:
                 save_message(phone, "user", text)

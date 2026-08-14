@@ -29,39 +29,39 @@ embeddings = OpenAIEmbeddings(
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
-db = None
-retriever = None
-
-try:
-    db = FAISS.load_local(
-        "faiss_indexx",
-        embeddings,
-        allow_dangerous_deserialization=True
-    )
-    retriever = db.as_retriever(search_kwargs={"k": 5})
-except Exception as e:
-    print(f"[rag.py] Could not load FAISS index, RAG will be disabled: {e}")
-
-
+# db = None
 # retriever = None
 
 # try:
-#     db = QdrantVectorStore(
-#         client=client,
-#         collection_name="knowledge_base",
-#         embedding=embeddings,
+#     db = FAISS.load_local(
+#         "faiss_indexx",
+#         embeddings,
+#         allow_dangerous_deserialization=True
 #     )
-
-#     retriever = db.as_retriever(
-#         search_kwargs={"k": 5}
-#     )
+#     retriever = db.as_retriever(search_kwargs={"k": 5})
 # except Exception as e:
-#     print(f"[rag.py] Could not connect to Qdrant, RAG will be disabled: {e}")
+#     print(f"[rag.py] Could not load FAISS index, RAG will be disabled: {e}")
 
-# llm = ChatGoogleGenerativeAI(
-#     model="gemini-2.5-flash",
-#     google_api_key=os.getenv("GEMINI_API_KEY")
-# )
+
+retriever = None
+
+try:
+    db = QdrantVectorStore(
+        client=client,
+        collection_name="knowledge_base",
+        embedding=embeddings,
+    )
+
+    retriever = db.as_retriever(
+        search_kwargs={"k": 5}
+    )
+except Exception as e:
+    print(f"[rag.py] Could not connect to Qdrant, RAG will be disabled: {e}")
+
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=os.getenv("GEMINI_API_KEY")
+)
 
 llm = ChatOpenAI(
     model="gpt-4.1-nano",

@@ -100,6 +100,7 @@ def get_default_state(phone: str) -> dict:
         "profile_created": False,     # Boolean flag indicating if user created an in-app profile
         "coupon_sent": False,         # Boolean flag indicating if welcome coupon code was delivered
         "is_escalated": False,        # Escalation flag to hand off to human agent
+        "is_target_ad": False,        # Whether user verified via secret string (AI enabled)
         "low_confidence_count": 0     # Consecutive unanswered / low-confidence query count
     }
 

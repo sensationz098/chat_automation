@@ -43,34 +43,50 @@ PRIORITY_AGENT_EMAIL_ANOTHER = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER")
 # Words that trigger immediate human agent handoff
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 
-TARGET_CAMPAIGN_ID = os.getenv("TARGET_CAMPAIGN_ID")
-TARGET_AD_ID = os.getenv("TARGET_AD_ID")
-TARGET_MESSAGE_TEXT = "hello! can i get more info on yoga classes?"
+# TARGET_CAMPAIGN_ID = os.getenv("TARGET_CAMPAIGN_ID")
+# TARGET_AD_ID = os.getenv("TARGET_AD_ID")
+TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "123456")
 
 import time
 def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = None) -> bool:
     """Checks if message string matches, if incoming referral contains targeted Ad/Campaign IDs, or if user is already marked as target ad customer."""
-    # 1. Check existing state flag in state cache
+    TARGET_AD_ID = os.getenv("TARGET_AD_ID")
+
+    # 1. Check existing state flag — ONLY the explicit is_target_ad flag
+    #    DO NOT check stage here. A user whose stage advanced (e.g. "ENROLL_ASKED")
+    #    from an organic message is NOT a target ad user.
     if phone:
         try:
             state = get_user_state(phone)
-            if state.get("is_target_ad") or state.get("stage") != "NEW":
+            if state.get("is_target_ad") is True:
+                print(f"[target-check] {phone}: PASS — is_target_ad flag already True in state")
                 return True
-        except Exception:
-            pass
+            else:
+                print(f"[target-check] {phone}: is_target_ad flag is {state.get('is_target_ad')}, checking message/referral...")
+        except Exception as e:
+            print(f"[target-check] {phone}: state lookup failed ({e}), checking message/referral...")
 
-    # 2. String match check
-    if TARGET_MESSAGE_TEXT in text.strip().lower():
+    # 2. Exact string match against the pre-filled ad message
+    cleaned_text = text.strip().lower()
+    if cleaned_text == TARGET_MESSAGE_TEXT:
+        print(f"[target-check] {phone}: PASS — text exactly matches TARGET_MESSAGE_TEXT")
         return True
-    
+    else:
+        print(f"[target-check] {phone}: text '{cleaned_text}' does NOT match target '{TARGET_MESSAGE_TEXT}'")
+
     # 3. Check Meta Referral payload data (if passed)
-    if referral_data:
+    if referral_data and isinstance(referral_data, dict) and referral_data:
         source_id = referral_data.get("source_id")
         source_url = referral_data.get("source_url", "")
-        
-        if TARGET_AD_ID and (str(source_id) == str(TARGET_AD_ID) or str(TARGET_AD_ID) in str(source_url)):
-            return True
 
+        if TARGET_AD_ID and (str(source_id) == str(TARGET_AD_ID) or str(TARGET_AD_ID) in str(source_url)):
+            print(f"[target-check] {phone}: PASS — referral source_id/source_url matches TARGET_AD_ID '{TARGET_AD_ID}'")
+            return True
+        else:
+            print(f"[target-check] {phone}: referral present but source_id='{source_id}' does not match TARGET_AD_ID='{TARGET_AD_ID}'")
+
+    # 4. Nothing matched — this is NOT a target ad user
+    print(f"[target-check] {phone}: FAIL — no match. AI will ignore this user.")
     return False
 
 
