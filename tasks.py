@@ -261,7 +261,7 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
             save_user_state(phone, state)
     except Exception as e:
         print(f"[tasks] {phone}: Failed to save target flag: {e}")
-        
+        state ={}
     # 3. Fetch history
     t_hist = time.perf_counter()
     try:
@@ -286,8 +286,11 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
     # 6. Round-robin agent assignment (async, non-blocking)
     t_assign = time.perf_counter()
     # agent = get_next_agent_email()
-    if PRIORITY_AGENT_EMAIL:
-        await assign_chat_to_agent_async(phone, PRIORITY_AGENT_EMAIL)
+    if PRIORITY_AGENT_EMAIL and not state.get("already_assigned"):
+        success = await assign_chat_to_agent_async(phone, PRIORITY_AGENT_EMAIL)
+        if success:
+            state["already_assigned"] = True
+            save_user_state(phone, state)
     print(f"[TIMING] {phone} agent_assignment({PRIORITY_AGENT_EMAIL}): {time.perf_counter() - t_assign:.2f}s")
 
     # 7. Check for human agent trigger words

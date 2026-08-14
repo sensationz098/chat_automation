@@ -32,12 +32,33 @@ WEBHOOK_URL = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_WEBHOOK_URL
 MAX_RESPONSE_TIME = 15.0
 
 TARGET_AD_ID = os.getenv("TARGET_AD_ID", "PLACEHOLDER_AD_ID")
-TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
+# TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
 
 from redis_client import get_redis_connection
 redis_conn = get_redis_connection()
 
+# TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
+
+# New: pool of messages for TARGET users (still same ad, different text per user)
+TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
+
+# Pool for TARGET users (same ad, varied opening text)
+TARGET_SAMPLE_MESSAGES = [
+    TARGET_MESSAGE_TEXT,
+    "Hi, interested in the yoga classes",
+    "What are the fees for yoga?",
+    "Can you tell me more about the batch timings?",
+    "I saw your ad, please share details",
+    "Yoga classes info please",
+    "Hello, I want to join yoga",
+    "More info on this please",
+    "Details of yoga classes?",
+    "Interested, please share info",
+]
+
+# Pool for NON-TARGET users (wrong ad, generic chatter)
 SAMPLE_MESSAGES = [
+    "Hello! Can I get more info on Yoga classes?",
     "What are the fees?",
     "Do you have a demo class video?",
     "Other timings",
@@ -51,17 +72,94 @@ SAMPLE_MESSAGES = [
 ]
 
 
+
+# def generate_payload(user_id: int) -> tuple:
+#     phone = f"919800{user_id:06d}"
+
+#     if user_id <= NUM_USERS // 2:
+#         # TARGET users — both ad ID and text match
+#         return {
+#             "type": "message_received",
+#             "data": {
+#                 "customer": {"country_code": "91", "phone_number": phone},
+#                 "message": {
+#                     "message": TARGET_MESSAGE_TEXT,
+#                     "referral": {
+#                         "source_id": TARGET_AD_ID,
+#                         "source_type": "ad",
+#                         "source_url": f"https://fb.com/l.php?ad_id={TARGET_AD_ID}",
+#                     },
+#                 },
+#             },
+#         }, phone, TARGET_MESSAGE_TEXT, True
+#     else:
+#         # NON-TARGET users — wrong ad
+#         msg = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
+#         return {
+#             "type": "message_received",
+#             "data": {
+#                 "customer": {"country_code": "91", "phone_number": phone},
+#                 "message": {
+#                     "message": msg,
+#                     "referral": {
+#                         "source_id": "999999_wrong_ad",
+#                         "source_type": "ad",
+#                         "source_url": "https://fb.com/l.php?ad_id=999999_wrong_ad",
+#                     },
+#                 },
+#             },
+#         }, phone, msg, False
+
+# def generate_payload(user_id: int) -> tuple:
+#     phone = f"919800{user_id:06d}"
+
+#     if user_id <= NUM_USERS // 2:
+#         # TARGET users — same ad ID, but message text now varies per user
+#         msg = TARGET_SAMPLE_MESSAGES[(user_id - 1) % len(TARGET_SAMPLE_MESSAGES)]
+#         return {
+#             "type": "message_received",
+#             "data": {
+#                 "customer": {"country_code": "91", "phone_number": phone},
+#                 "message": {
+#                     "message": msg,
+#                     "referral": {
+#                         "source_id": TARGET_AD_ID,
+#                         "source_type": "ad",
+#                         "source_url": f"https://fb.com/l.php?ad_id={TARGET_AD_ID}",
+#                     },
+#                 },
+#             },
+#         }, phone, msg, True
+#     else:
+#         # NON-TARGET users — wrong ad
+#         msg = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
+#         return {
+#             "type": "message_received",
+#             "data": {
+#                 "customer": {"country_code": "91", "phone_number": phone},
+#                 "message": {
+#                     "message": msg,
+#                     "referral": {
+#                         "source_id": "999999_wrong_ad",
+#                         "source_type": "ad",
+#                         "source_url": "https://fb.com/l.php?ad_id=999999_wrong_ad",
+#                     },
+#                 },
+#             },
+#         }, phone, msg, False
+
 def generate_payload(user_id: int) -> tuple:
     phone = f"919800{user_id:06d}"
+    msg = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
 
     if user_id <= NUM_USERS // 2:
-        # TARGET users — both ad ID and text match
+        # TARGET users — correct ad ID, message text now varies too
         return {
             "type": "message_received",
             "data": {
                 "customer": {"country_code": "91", "phone_number": phone},
                 "message": {
-                    "message": TARGET_MESSAGE_TEXT,
+                    "message": msg,
                     "referral": {
                         "source_id": TARGET_AD_ID,
                         "source_type": "ad",
@@ -69,10 +167,9 @@ def generate_payload(user_id: int) -> tuple:
                     },
                 },
             },
-        }, phone, TARGET_MESSAGE_TEXT, True
+        }, phone, msg, True
     else:
         # NON-TARGET users — wrong ad
-        msg = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
         return {
             "type": "message_received",
             "data": {
@@ -87,6 +184,8 @@ def generate_payload(user_id: int) -> tuple:
                 },
             },
         }, phone, msg, False
+
+
 
 
 async def send_webhook(client: httpx.AsyncClient, user_id: int) -> dict:
@@ -184,7 +283,6 @@ def check_round_robin():
     except Exception:
         pass
     return None
-
 
 async def run_test():
     print("=" * 70)
