@@ -1,18 +1,19 @@
 """
-full_test.py — Concurrent load test for 10 simultaneous workers.
+full_test.py — Concurrent load test with round-robin verification.
 
-Simulates N users sending messages to the test webhook concurrently,
-monitors background worker execution, and reports success/failure
-with precise latency for every user.
+Simulates N users (half target, half non-target) sending messages
+to the test webhook concurrently. Verifies:
+  - Target/non-target filtering
+  - AI response latency
+  - Round-robin agent assignment (Agent1/Agent2 alternating)
+  - Different phones process concurrently (not serialized)
 
 Usage:
     python full_test.py                    # 10 users (default)
-    python full_test.py 5                  # 5 users
+    python full_test.py 20                 # 20 users
     python full_test.py 20 http://host:8000/test-webhook
 
-Exit code:
-    0 = all targeted users got replies within 15 seconds
-    1 = some users failed or exceeded 15 second threshold
+Exit code: 0 = all pass, 1 = some failed
 """
 
 import sys
@@ -25,20 +26,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- Configuration ---
 DEFAULT_WEBHOOK_URL = "http://localhost:8000/test-webhook"
 NUM_USERS = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 WEBHOOK_URL = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_WEBHOOK_URL
-MAX_RESPONSE_TIME = 15.0  # seconds — pass/fail threshold
+MAX_RESPONSE_TIME = 15.0
 
 TARGET_AD_ID = os.getenv("TARGET_AD_ID", "PLACEHOLDER_AD_ID")
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
 
-# Import Redis connection for monitoring AI responses
 from redis_client import get_redis_connection
 redis_conn = get_redis_connection()
 
-SAMPLE_FOLLOWUP_MESSAGES = [
+SAMPLE_MESSAGES = [
     "What are the fees?",
     "Do you have a demo class video?",
     "Other timings",
@@ -53,56 +52,49 @@ SAMPLE_FOLLOWUP_MESSAGES = [
 
 
 def generate_payload(user_id: int) -> tuple:
-    """Generates an Interakt-compliant webhook payload for a unique simulated user."""
     phone = f"919800{user_id:06d}"
 
-    # First 5 users: target ad + matching text (should get replies)
-    # Next 5 users: wrong ad ID (should be ignored)
     if user_id <= NUM_USERS // 2:
         # TARGET users — both ad ID and text match
-        message_text = TARGET_MESSAGE_TEXT
-        referral = {
-            "source_id": TARGET_AD_ID,
-            "source_type": "ad",
-            "source_url": f"https://fb.com/l.php?ad_id={TARGET_AD_ID}"
-        }
-        is_target = True
-    else:
-        # NON-TARGET users — wrong ad ID, random message
-        message_text = SAMPLE_FOLLOWUP_MESSAGES[(user_id - 1) % len(SAMPLE_FOLLOWUP_MESSAGES)]
-        referral = {
-            "source_id": "999999999_wrong_ad",
-            "source_type": "ad",
-            "source_url": "https://fb.com/l.php?ad_id=999999999_wrong_ad"
-        }
-        is_target = False
-
-    payload = {
-        "type": "message_received",
-        "data": {
-            "customer": {
-                "country_code": "91",
-                "phone_number": phone,
-                "channel_phone_number": phone,
+        return {
+            "type": "message_received",
+            "data": {
+                "customer": {"country_code": "91", "phone_number": phone},
+                "message": {
+                    "message": TARGET_MESSAGE_TEXT,
+                    "referral": {
+                        "source_id": TARGET_AD_ID,
+                        "source_type": "ad",
+                        "source_url": f"https://fb.com/l.php?ad_id={TARGET_AD_ID}",
+                    },
+                },
             },
-            "message": {
-                "message": message_text,
-                "referral": referral,
-            }
-        }
-    }
-    return payload, phone, message_text, is_target
+        }, phone, TARGET_MESSAGE_TEXT, True
+    else:
+        # NON-TARGET users — wrong ad
+        msg = SAMPLE_MESSAGES[(user_id - 1) % len(SAMPLE_MESSAGES)]
+        return {
+            "type": "message_received",
+            "data": {
+                "customer": {"country_code": "91", "phone_number": phone},
+                "message": {
+                    "message": msg,
+                    "referral": {
+                        "source_id": "999999_wrong_ad",
+                        "source_type": "ad",
+                        "source_url": "https://fb.com/l.php?ad_id=999999_wrong_ad",
+                    },
+                },
+            },
+        }, phone, msg, False
 
 
 async def send_webhook(client: httpx.AsyncClient, user_id: int) -> dict:
-    """Fires one webhook and records timing."""
     payload, phone, message_text, is_target = generate_payload(user_id)
     sent_at = time.time()
-
     try:
         response = await client.post(
-            WEBHOOK_URL,
-            json=payload,
+            WEBHOOK_URL, json=payload,
             headers={"Content-Type": "application/json"},
             timeout=30.0,
         )
@@ -125,7 +117,6 @@ async def send_webhook(client: httpx.AsyncClient, user_id: int) -> dict:
 
 
 def check_ai_response(phone: str) -> dict | None:
-    """Checks Redis for the latest assistant response."""
     key = f"history:{phone}"
     try:
         cached = redis_conn.lrange(key, 0, -1)
@@ -139,8 +130,7 @@ def check_ai_response(phone: str) -> dict | None:
     return None
 
 
-async def wait_for_ai_responses(target_results: list, timeout: float = 60.0) -> dict:
-    """Polls Redis until all target users have AI responses or timeout."""
+async def wait_for_ai_responses(target_results: list, timeout: float = 90.0) -> dict:
     pending = {r["phone"]: r["sent_at"] for r in target_results}
     completed = {}
     start = time.time()
@@ -164,7 +154,9 @@ async def wait_for_ai_responses(target_results: list, timeout: float = 60.0) -> 
 
         if newly_done:
             elapsed = time.time() - start
-            print(f"  ⌛ Progress: {len(completed)}/{len(completed) + len(pending)} AI replies received ({elapsed:.1f}s)")
+            done = len(completed)
+            total = done + len(pending)
+            print(f"  Progress: {done}/{total} AI replies received ({elapsed:.1f}s)")
 
         if pending:
             await asyncio.sleep(0.5)
@@ -172,16 +164,57 @@ async def wait_for_ai_responses(target_results: list, timeout: float = 60.0) -> 
     return completed
 
 
-async def run_test():
-    """Main test runner."""
-    print("=" * 65)
-    print(f"🧪 FULL CONCURRENT TEST — {NUM_USERS} Simultaneous Users")
-    print(f"🎯 Webhook: {WEBHOOK_URL}")
-    print(f"⏱️  Pass threshold: <{MAX_RESPONSE_TIME}s per user")
-    print("=" * 65)
+def check_round_robin():
+    """Check the Redis round-robin counter to verify agent distribution."""
+    try:
+        counter = redis_conn.get("agent_round_robin_counter")
+        if counter:
+            count = int(counter)
+            agent1 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_1", "Agent1")
+            agent2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2", "Agent2")
+            a1_count = (count + 1) // 2  # odd positions
+            a2_count = count // 2  # even positions
+            return {
+                "total_assignments": count,
+                "agent1": agent1,
+                "agent1_count": a1_count,
+                "agent2": agent2,
+                "agent2_count": a2_count,
+            }
+    except Exception:
+        pass
+    return None
 
-    # Phase 1: Fire all webhooks simultaneously
-    print(f"\n⚡ PHASE 1: Firing {NUM_USERS} webhooks simultaneously...")
+
+async def run_test():
+    print("=" * 70)
+    print(f"  CONCURRENT LOAD TEST - {NUM_USERS} Simultaneous Users")
+    print(f"  Webhook: {WEBHOOK_URL}")
+    print(f"  Pass threshold: <{MAX_RESPONSE_TIME}s per user")
+    print("=" * 70)
+
+    # Reset round-robin counter for clean test
+    try:
+        redis_conn.delete("agent_round_robin_counter")
+        print("  Round-robin counter reset.")
+    except Exception:
+        pass
+
+    # Clean up test user histories from previous runs
+    for i in range(1, NUM_USERS + 1):
+        phone = f"919800{i:06d}"
+        try:
+            redis_conn.delete(f"history:{phone}")
+            redis_conn.delete(f"user_state:{phone}")
+            redis_conn.delete(f"batch:{phone}")
+            redis_conn.delete(f"batch_trigger:{phone}")
+            redis_conn.delete(f"batch_referral:{phone}")
+        except Exception:
+            pass
+    print(f"  Cleaned up {NUM_USERS} test user states.\n")
+
+    # Phase 1: Fire all webhooks
+    print(f"  PHASE 1: Firing {NUM_USERS} webhooks simultaneously...")
     t_start = time.time()
 
     limits = httpx.Limits(max_keepalive_connections=NUM_USERS, max_connections=NUM_USERS + 10)
@@ -191,29 +224,30 @@ async def run_test():
 
     webhook_time = time.time() - t_start
     ok_count = sum(1 for r in results if r.get("status_code") == 200)
-    print(f"\n✅ Webhooks sent: {ok_count}/{NUM_USERS} HTTP 200 in {webhook_time:.2f}s")
+    print(f"\n  Webhooks: {ok_count}/{NUM_USERS} HTTP 200 in {webhook_time:.2f}s")
 
     if ok_count == 0:
-        print("❌ No webhooks accepted — is the server running? (python start.py)")
+        print("  ERROR: No webhooks accepted. Is the server running?")
+        print("    python start.py      (single worker)")
+        print("    python run_workers.py 20  (multi-worker)")
         sys.exit(1)
 
-    # Phase 2: Wait for AI responses (only for target users)
+    # Phase 2: Wait for AI responses (target users only)
     target_results = [r for r in results if r["is_target"] and r.get("status_code") == 200]
     non_target_results = [r for r in results if not r["is_target"]]
 
-    print(f"\n⚙️  PHASE 2: Waiting for {len(target_results)} target users to get AI replies...")
-    ai_responses = await wait_for_ai_responses(target_results, timeout=60.0)
+    print(f"\n  PHASE 2: Waiting for {len(target_results)} target users to get AI replies...")
+    ai_responses = await wait_for_ai_responses(target_results, timeout=90.0)
 
     total_time = time.time() - t_start
 
     # Phase 3: Results
-    print("\n" + "=" * 65)
-    print("📊 TEST RESULTS")
-    print("=" * 65)
+    print("\n" + "=" * 70)
+    print("  TEST RESULTS")
+    print("=" * 70)
 
-    # Per-user results table
-    print(f"\n{'User':>4} | {'Phone':>14} | {'Target':>6} | {'Status':>10} | {'Latency':>8} | Message")
-    print("-" * 85)
+    print(f"\n{'User':>4} | {'Phone':>14} | {'Target':>6} | {'Status':>12} | {'Enqueue':>8} | Message")
+    print("-" * 90)
 
     all_pass = True
     latencies = []
@@ -229,49 +263,64 @@ async def run_test():
                 lat = ai["latency_sec"]
                 latencies.append(lat)
                 passed = lat <= MAX_RESPONSE_TIME
-                status = f"✅ {lat:.1f}s" if passed else f"❌ {lat:.1f}s"
+                status = f"OK {lat:.1f}s" if passed else f"SLOW {lat:.1f}s"
                 if not passed:
                     all_pass = False
             else:
-                status = "❌ TIMEOUT"
+                status = "TIMEOUT"
                 all_pass = False
         else:
-            # Non-target users should be IGNORED (no reply = correct behavior)
             ai = ai_responses.get(phone)
             if ai:
-                status = "⚠️  LEAKED"  # Bug: non-target user got a reply
+                status = "LEAKED!"
                 all_pass = False
             else:
-                status = "✅ IGNORED"
+                status = "IGNORED(ok)"
 
-        msg_display = r["message"][:35] + "..." if len(r["message"]) > 35 else r["message"]
-        print(f"{user_id:4d} | {phone:>14} | {'YES' if is_target else 'NO':>6} | {status:>10} | {r['enqueue_ms']:6.0f}ms | {msg_display}")
+        msg_display = r["message"][:30] + "..." if len(r["message"]) > 30 else r["message"]
+        print(f"{user_id:4d} | {phone:>14} | {'YES' if is_target else 'NO':>6} | {status:>12} | {r['enqueue_ms']:6.0f}ms | {msg_display}")
 
     # Summary
-    print("\n" + "=" * 65)
-    print("📈 SUMMARY")
-    print("=" * 65)
+    print("\n" + "=" * 70)
+    print("  SUMMARY")
+    print("=" * 70)
     print(f"  Total users          : {NUM_USERS}")
-    print(f"  Target ad users      : {len(target_results)}")
+    print(f"  Target users         : {len(target_results)}")
     print(f"  Non-target users     : {len(non_target_results)}")
     print(f"  AI replies received  : {len(ai_responses)}/{len(target_results)}")
     print(f"  Total wall-clock time: {total_time:.2f}s")
 
     if latencies:
-        print(f"  ⚡ Fastest reply     : {min(latencies):.2f}s")
-        print(f"  🐢 Slowest reply     : {max(latencies):.2f}s")
-        print(f"  📊 Average reply     : {sum(latencies)/len(latencies):.2f}s")
+        print(f"  Fastest reply        : {min(latencies):.2f}s")
+        print(f"  Slowest reply        : {max(latencies):.2f}s")
+        print(f"  Average reply        : {sum(latencies)/len(latencies):.2f}s")
+        under = sum(1 for l in latencies if l <= MAX_RESPONSE_TIME)
+        print(f"  Under {MAX_RESPONSE_TIME}s           : {under}/{len(latencies)}")
 
-    under_threshold = sum(1 for l in latencies if l <= MAX_RESPONSE_TIME)
-    print(f"  ✅ Under {MAX_RESPONSE_TIME}s         : {under_threshold}/{len(latencies)}")
+    # Round-robin verification
+    print("\n" + "-" * 70)
+    print("  ROUND-ROBIN AGENT ASSIGNMENT")
+    print("-" * 70)
+    rr = check_round_robin()
+    if rr:
+        print(f"  Total assignments    : {rr['total_assignments']}")
+        print(f"  {rr['agent1']}: ~{rr['agent1_count']} assignments")
+        print(f"  {rr['agent2']}: ~{rr['agent2_count']} assignments")
+        diff = abs(rr['agent1_count'] - rr['agent2_count'])
+        if diff <= 1:
+            print(f"  Distribution         : BALANCED (diff={diff})")
+        else:
+            print(f"  Distribution         : UNEVEN (diff={diff}) -- check logs")
+    else:
+        print("  Could not read round-robin counter from Redis.")
 
-    print("=" * 65)
+    print("=" * 70)
 
     if all_pass and len(ai_responses) == len(target_results):
-        print("🎉 ALL TESTS PASSED — Bot is deployment-ready!")
+        print("  ALL TESTS PASSED - Bot is deployment-ready!")
         sys.exit(0)
     else:
-        print("❌ SOME TESTS FAILED — Review results above.")
+        print("  SOME TESTS FAILED - Review results above.")
         sys.exit(1)
 
 

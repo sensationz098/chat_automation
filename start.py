@@ -32,7 +32,8 @@ def check_env_vars():
         "QDRANT_URL",
         "QDRANT_API_KEY",
         "PRIORITY_AGENT_EMAIL",
-        "PRIORITY_AGENT_EMAIL_ANOTHER",
+        "PRIORITY_AGENT_EMAIL_ANOTHER_1",
+        "PRIORITY_AGENT_EMAIL_ANOTHER_2",
         "TARGET_AD_ID",
         "TARGET_MESSAGE_TEXT",
     ]

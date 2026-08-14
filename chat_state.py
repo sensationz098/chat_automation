@@ -23,6 +23,7 @@ except Exception as e:
     print(f"[chat_state] Supabase init error: {e}")
 
 # In-memory session dictionary: maps unique phone number -> user state dictionary
+import time
 import threading
 _memory_lock = threading.Lock()
 _memory_sessions: dict[str, dict] = {}
@@ -110,13 +111,20 @@ def get_default_state(phone: str) -> dict:
 def get_user_state(phone: str) -> dict:
     """
     Retrieves active session state dictionary for a phone number.
-    Checks memory cache -> Redis persistence -> Supabase DB -> Default initial state.
-    Guarantees state is preserved even after server restarts.
+    Checks memory cache (5s TTL) -> Redis -> Supabase -> Default.
     """
-    # 1. Check in-memory cache
+    MEMORY_TTL = 5  # seconds — prevents stale reads in multi-worker mode
+
+    # 1. Check in-memory cache (with TTL)
     with _memory_lock:
         if phone in _memory_sessions:
-            return _memory_sessions[phone]
+            entry = _memory_sessions[phone]
+            if isinstance(entry, tuple):
+                cached_state, cached_at = entry
+                if (time.time() - cached_at) < MEMORY_TTL:
+                    return cached_state
+            elif isinstance(entry, dict):
+                return entry  # legacy format, no TTL
 
     # 2. Check Redis cache (persists across server restarts)
     state = get_default_state(phone)
@@ -127,7 +135,7 @@ def get_user_state(phone: str) -> dict:
             cached_dict = json.loads(raw_state)
             state.update(cached_dict)
             with _memory_lock:
-                _memory_sessions[phone] = state
+                _memory_sessions[phone] = (state, time.time())
             return state
     except Exception as e:
         print(f"[chat_state] Redis get_user_state read failed (non-fatal): {e}")
@@ -143,7 +151,7 @@ def get_user_state(phone: str) -> dict:
 
     # Save to Redis & memory cache for future fast reads
     with _memory_lock:
-        _memory_sessions[phone] = state
+        _memory_sessions[phone] = (state, time.time())
     try:
         redis_conn.setex(redis_key, STATE_CACHE_TTL, json.dumps(state))
     except Exception:
@@ -157,7 +165,7 @@ def save_user_state(phone: str, state: dict):
     Persists updated session state dictionary across Memory, Redis, and Supabase.
     """
     with _memory_lock:
-        _memory_sessions[phone] = state
+        _memory_sessions[phone] = (state, time.time())
     redis_key = f"user_state:{phone}"
 
     # Persist in Redis across restarts

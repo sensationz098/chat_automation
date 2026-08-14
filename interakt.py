@@ -172,6 +172,48 @@ def assign_chat_to_agent(phone: str, agent_email: str) -> bool:
         return False
 
 
+async def assign_chat_to_agent_async(phone: str, agent_email: str) -> bool:
+    """
+    Async version — non-blocking, uses connection pooling.
+    Gracefully handles 400 "Customer matching query does not exist".
+    """
+    payload = {"user_phone_number": phone, "agent_email": agent_email}
+    t0 = time.perf_counter()
+    try:
+        client = _get_async_client()
+        response = await client.post(
+            f"{BASE_URL}/assignment/",
+            headers=_headers(),
+            json=payload,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] assign_chat_to_agent_async({agent_email}): {response.status_code} ({elapsed:.2f}s)")
+
+        if response.status_code == 200:
+            return True
+        if response.status_code == 400:
+            body = response.text.lower()
+            if "already assigned to same agent" in body:
+                print(f"[interakt] {agent_email} was already assigned -- treating as success.")
+                return True
+            if "customer matching query does not exist" in body:
+                print(f"[interakt] Customer {phone} not yet in Interakt -- assignment skipped (non-fatal).")
+                return False
+            print(f"[interakt] Assignment 400 error: {response.text}")
+            return False
+
+        print(f"[interakt] Assignment failed: {response.status_code} {response.text}")
+        return False
+    except httpx.TimeoutException:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] assign_chat_to_agent_async TIMEOUT after {elapsed:.2f}s")
+        return False
+    except Exception as e:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] assign_chat_to_agent_async error ({elapsed:.2f}s): {e}")
+        return False
+
+
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     """Verifies Interakt webhook signature for security."""
     if not INTERAKT_WEBHOOK_SECRET:
