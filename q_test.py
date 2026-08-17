@@ -17,9 +17,6 @@ client = QdrantClient(
     timeout=10,
 )
 
-# -----------------------------
-# Embeddings
-# -----------------------------
 embeddings = OpenAIEmbeddings(
     model="text-embedding-3-small",
     api_key=os.getenv("OPENAI_API_KEY"),
@@ -41,6 +38,7 @@ queries = [
     "Is yoga available online?",
     "What is the duration of the course?",
     "Who are the yoga teachers?",
+    "WHat is the age person can join"
 ]
 
 

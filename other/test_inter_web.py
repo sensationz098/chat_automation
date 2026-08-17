@@ -1,7 +1,6 @@
 import requests
 
-API_KEY = "eGRGVDVFWjZOeTRkWnM0QUdDN2lkLUY3UnRhaXk2LWJPeHpDekFkU3VlYzo="
-
+API_KEY = ""
 url = "https://api.interakt.ai/v1/public/message/"
 
 headers = {

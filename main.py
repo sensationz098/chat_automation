@@ -17,6 +17,7 @@ from interakt import (
     assign_chat_to_agent_async,
     verify_webhook_signature,
 )
+
 from csv_logger import log_message
 from chat_history import save_message, get_recent_history, get_full_history_for_agent
 from rag import ask_rag_async
@@ -171,6 +172,16 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
 
     state = extract_and_update_slots(phone, text)
     full_reply = await ask_rag_async(text, chat_history=history, state=state)
+    
+    # Post-LLM State Transitions
+    if state.get("stage") == "READY_FOR_APP_LINK":
+        state["stage"] = "APP_LINK_SENT"
+        save_user_state(phone, state)
+    elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
+        state["coupon_sent"] = True
+        state["stage"] = "COUPON_SENT"
+        save_user_state(phone, state)
+
     await send_text_message_async(phone, full_reply)
     latency_sec = round(time.time() - start_time, 2)
     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)

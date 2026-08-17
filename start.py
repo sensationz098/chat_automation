@@ -1,22 +1,9 @@
-"""
-start.py — Single-command startup script for the WhatsApp bot.
-
-Usage:
-    python start.py                   # Default: host=0.0.0.0, port=8000
-    python start.py 8080              # Custom port
-    python start.py 8080 127.0.0.1    # Custom port + host
-
-The FastAPI app handles concurrency via asyncio (not multiple uvicorn workers),
-because in-memory session state would be duplicated across workers.
-"""
-
 import sys
 import os
 import uvicorn
 from dotenv import load_dotenv
 
 load_dotenv()
-
 
 def check_env_vars():
     """Verify critical environment variables are set before starting."""
@@ -28,6 +15,8 @@ def check_env_vars():
         "UPSTASH_REDIS_REST_URL",
         "UPSTASH_REDIS_REST_TOKEN",
     ]
+
+
     optional = [
         "QDRANT_URL",
         "QDRANT_API_KEY",
@@ -87,3 +76,4 @@ if __name__ == "__main__":
         workers=1,  # Single worker — in-memory state requires it
         log_level="info",
     )
+

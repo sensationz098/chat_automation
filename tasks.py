@@ -163,49 +163,18 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     is_q = is_user_asking_question(text)
     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
 
-    # 2. Deterministic state guards
-    if not is_q and state["stage"] == "READY_FOR_APP_LINK":
-        package = (state.get("package") or "3-month").lower()
-        fee = state.get("fee") or "₹1,750"
-        reply = (
-            f"Great choice! 😊 You've selected the {package} package for {fee}.\n\n"
-            "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
-            "Please download the app here:\n\n"
-            "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
-            "Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!"
-        )
-        state["stage"] = "APP_LINK_SENT"
-        save_user_state(phone, state)
-        await send_text_message_async(phone, reply)
-        latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
-        print(f"[TIMING] {phone} app_link TOTAL: {time.perf_counter() - t0:.2f}s")
-        return
-
-    if state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
-        reply = (
-            "🎉 Welcome to the Sensationz Yoga family! 🌸\n"
-            "Your app setup and profile are complete.\n\n"
-            "🎁 Your personalized welcome coupon code is: **SENSZAPP**\n\n"
-            "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
-        )
-        state["coupon_sent"] = True
-        state["stage"] = "COUPON_SENT"
-        save_user_state(phone, state)
-        await send_text_message_async(phone, reply)
-        latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
-        print(f"[TIMING] {phone} coupon TOTAL: {time.perf_counter() - t0:.2f}s")
-        return
-
-    # 3. RAG AI reply
+    # 2. RAG AI reply
     t_rag = time.perf_counter()
     full_reply = await ask_rag_async(text, chat_history=history, state=state)
     full_reply = full_reply.strip()
     print(f"[TIMING] {phone} rag_query: {time.perf_counter() - t_rag:.2f}s")
+
+    # Post-LLM State Transitions
+    if state.get("stage") == "READY_FOR_APP_LINK":
+        state["stage"] = "APP_LINK_SENT"
+    elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
+        state["coupon_sent"] = True
+        state["stage"] = "COUPON_SENT"
 
     # 4. Low-confidence check
     low_conf_triggers = ["unable to process", "unable to answer", "i don't have information", "not sure", "sorry, the ai service"]

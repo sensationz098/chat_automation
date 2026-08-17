@@ -307,9 +307,25 @@ async def run_test():
             redis_conn.delete(f"batch:{phone}")
             redis_conn.delete(f"batch_trigger:{phone}")
             redis_conn.delete(f"batch_referral:{phone}")
+            
+            # Pre-populate is_target_ad for simulated target users
+            if i <= NUM_USERS // 2:
+                redis_conn.set(f"user_state:{phone}", json.dumps({
+                    "phone": phone,
+                    "stage": "NEW",
+                    "timing": None,
+                    "package": None,
+                    "fee": None,
+                    "app_installed": False,
+                    "profile_created": False,
+                    "coupon_sent": False,
+                    "is_escalated": False,
+                    "is_target_ad": True,
+                    "low_confidence_count": 0
+                }))
         except Exception:
             pass
-    print(f"  Cleaned up {NUM_USERS} test user states.\n")
+    print(f"  Cleaned up {NUM_USERS} test user states and pre-populated target flags.\n")
 
     # Phase 1: Fire all webhooks
     print(f"  PHASE 1: Firing {NUM_USERS} webhooks simultaneously...")

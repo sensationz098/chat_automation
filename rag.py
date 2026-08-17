@@ -40,7 +40,7 @@ try:
     )
 
     retriever = db.as_retriever(
-        search_kwargs={"k": 3}
+        search_kwargs={"k": 5}
     )
     print("[rag.py] Qdrant vector DB connected successfully")
 except Exception as e:
@@ -105,15 +105,34 @@ def _is_transactional_input(text: str) -> bool:
 
 def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     """
-    Combines recent chat conversation history with the incoming question
-    to give the vector retriever full context for semantic search.
+    Combines recent user message content with the incoming question to give the
+    vector retriever focused context for semantic search without diluting it
+    with long assistant greeting templates or unrelated responses.
     """
+    q_lower = question.lower().strip()
+    
+    # Highly specific keywords should not be diluted by conversation history at all.
+    keywords = [
+        "syllabus", "syllbus", "syallbus", "topic", "topics", "course", "courses",
+        "fee", "fees", "price", "prices", "cost", "costs", "charge", "charges",
+        "timing", "timings", "schedule", "schedules", "time", "times",
+        "teacher", "teachers", "trainer", "trainers", "faculty", "instructor", "instructors",
+        "demo", "trial", "video", "videos", "app", "link", "download",
+        "enroll", "package", "duration", "month", "months", "year"
+    ]
+    if any(kw in q_lower for kw in keywords):
+        return question
+
     if not chat_history:
         return question
 
-    recent = chat_history[-4:]
-    context_str = " ".join(turn["content"] for turn in recent)
-    return f"{context_str} {question}"
+    # Only include user's previous questions to provide conversational context,
+    # avoiding the assistant's long template greetings.
+    user_msgs = [turn["content"] for turn in chat_history if turn.get("role") == "user"]
+    recent = user_msgs[-2:]
+    if recent:
+        return f"{' '.join(recent)} {question}"
+    return question
 
 
 async def ask_rag_async(question: str, chat_history: list = None, state: dict = None) -> str:
