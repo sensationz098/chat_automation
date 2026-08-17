@@ -210,7 +210,7 @@ def format_system_prompt(state: dict) -> str:
     )
 
 
-# Backward-compatibility fallback string for new sessions
+# Backward-compatibility fallback string for new sessions it
 SYSTEM_PROMPT = format_system_prompt({"stage": "NEW"})
 
 # or sends a message containing "Yoga" / "Yog"
