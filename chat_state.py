@@ -252,8 +252,12 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
     # Keywords for initial contact vs confirmation vs slots
     is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
     is_yoga_keyword = any(w in text_lower for w in ["yoga", "yog", "yaga", "yogi", "yoga classes", "online yoga", "yoga details", "yoga course"])
-    is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
-
+    # is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
+    is_confirmation = any(w in text_lower for w in [
+            "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
+            "interested", "i want to join", "ha", "haan", "han",
+            "karna hai", "kar do", "haan ji", "proceed"
+        ])
     # Stage 0: Initial Greeting & Enrollment Confirmation Check
     if state["stage"] in ["NEW", "ENROLL_ASKED"]:
         has_enroll_intent = (is_confirmation or any(w in text_lower for w in ["price", "fees", "fee", "timing", "timings", "enroll", "join", "classes", "start", "how to", "kaise", "proceed"]))

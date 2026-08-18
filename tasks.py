@@ -43,10 +43,41 @@ PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
 # Round-robin pool (only non-None entries)
 AGENT_POOL = [e for e in [PRIORITY_AGENT_EMAIL_ANOTHER_1, PRIORITY_AGENT_EMAIL_ANOTHER_2] if e]
 
-AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
+AGENT_TRIGGER_WORDS = ["agent"]
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
 
+INFO_INTENT_KEYWORDS = [
+    # Section 20 mapping
+    "fee", "price", "cost", "charges",
+    "duration",
+    "batch", "timing", "schedule", "time slot",
+    "teacher", "instructor",
+    "platform", "app",
+    "syllabus", "topics", "course",
+    "trial", "demo", "sample", "reference video",
+    "eligib", "age","eligible"
+    "classes per week", "how many days", "class frequency",
+    "benefit","benefits","fayda","fayada",
+    "what to bring", "keep ready", "mat", "clothing",
+    "online", "offline", "virtual",
+    "device", "laptop", "mobile", "tablet",
+    "enroll", "registration",
+    "medical", "treatment", "cure", "disease", "pcos", "back pain",
 
+    # Section 21 phrase variations
+    "monthly fee", "quarterly fee", "six-month fee", "annual fee",
+    "live yoga", "sensationz app",
+    "morning batch", "evening batch",
+    "trial session", "trial yoga class","class","schedule"
+
+    # General intent phrases (from your earlier chats)
+    "yoga", "sikhna", "seekhna", "learn yoga", "yoga krna",
+    "trust", "fraud", "scam", "genuine", "real company",
+    "about company", "location", "branch", "address",
+    "social media", "instagram", "facebook", "youtube", "website",
+    "recording", "record", "leave", "cancel", "refund", "no refund",
+    "minimum age", "8 year","batao","guide"
+]
 # ---------------------------------------------------------------------------
 # Round-robin agent selection (Redis INCR — atomic, multi-process safe)
 # ---------------------------------------------------------------------------
@@ -198,6 +229,10 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
 #     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
 #     log_message(phone, "ai", full_reply)
 
+def is_info_intent(text: str) -> bool:
+    t = text.lower().strip()
+    return any(kw in t for kw in INFO_INTENT_KEYWORDS)
+
 import re
 
 AGENT_SUGGEST_PATTERN = re.compile(
@@ -267,13 +302,17 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # Define flags for fresh transitions and confirmations/greetings
     text_lower = text.lower().strip()
     is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
-    is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
-
+    # is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
+    is_confirmation = any(w in text_lower for w in [
+            "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
+            "interested", "i want to join", "ha", "haan", "han",
+            "karna hai", "kar do", "haan ji", "proceed"
+        ])
     is_fresh_enroll_confirmed = (prev_stage != "ENROLL_CONFIRMED" and state["stage"] == "ENROLL_CONFIRMED")
     is_fresh_package_asked = (prev_stage != "PACKAGE_ASKED" and state["stage"] == "PACKAGE_ASKED")
 
     # --- DETERMINISTIC STAGE GUARDS ---
-    if not is_q and state["stage"] == "ENROLL_CONFIRMED" and (is_fresh_enroll_confirmed or is_confirmation or is_greeting):
+    if not is_q and not is_info_intent(text) and state["stage"] == "ENROLL_CONFIRMED" and (is_fresh_enroll_confirmed or is_confirmation or is_greeting):
         reply = FLOW_FOLLOWUPS["ENROLL_CONFIRMED"].strip()
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -281,7 +320,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    if not is_q and state["stage"] == "PACKAGE_ASKED" and (is_fresh_package_asked or is_confirmation or is_greeting):
+    if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_ASKED" and (is_fresh_package_asked or is_confirmation or is_greeting):
         reply = FLOW_FOLLOWUPS["PACKAGE_ASKED"].strip()
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -289,7 +328,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    if not is_q and state["stage"] == "TIMING_SELECTED" and not state.get("package"):
+    if not is_q and not is_info_intent(text) and  state["stage"] == "TIMING_SELECTED" and not state.get("package"):
         reply = (
             f"Great choice! 😊 You've selected the {state.get('timing')} batch.\n\n"
             "Would you like to go ahead and pick a package duration too? 😊\n"
@@ -303,7 +342,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    if not is_q and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing"):
+    if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing"):
         reply = (
             f"Great choice! 😊 You've selected the {state.get('package')} package.\n\n"
             "By the way, which timing would you prefer for your classes? 😊\n"
@@ -320,7 +359,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         return
 
 
-    if not is_q and state["stage"] == "READY_FOR_APP_LINK":
+    if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750"
         reply = (
@@ -339,7 +378,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    if state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
+    if state["stage"] == "PROFILE_COMPLETED" and not is_info_intent(text) and not state.get("coupon_sent"):
         reply = (
             "🎉 Welcome to the Sensationz Yoga family! 🌸\n"
             "Your app setup and profile are complete.\n\n"

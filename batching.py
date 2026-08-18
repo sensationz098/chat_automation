@@ -8,6 +8,7 @@ Uses an asyncio task debouncer + Redis token verification:
 - 100% reliable execution after user finishes typing.
 """
 
+
 import os
 import uuid
 import json
@@ -19,7 +20,7 @@ from tasks import process_incoming_message_async
 
 load_dotenv()
 
-BATCH_WAIT_SECONDS = 0.3  # Reduced from 0.5s for faster response
+BATCH_WAIT_SECONDS = 2  # Reduced from 0.5s for faster response
 
 redis_conn = get_redis_connection()
 _active_debounce_tasks = {}
