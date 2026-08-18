@@ -255,20 +255,15 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
     is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
 
     # Stage 0: Initial Greeting & Enrollment Confirmation Check
-    if state["stage"] == "NEW":
-        if is_confirmation and not is_q:
+    if state["stage"] in ["NEW", "ENROLL_ASKED"]:
+        has_enroll_intent = (is_confirmation or any(w in text_lower for w in ["price", "fees", "fee", "timing", "timings", "enroll", "join", "classes", "start", "how to", "kaise", "proceed"]))
+        if has_enroll_intent:
             state["stage"] = "ENROLL_CONFIRMED"
             state["timing"] = None
             state["package"] = None
             state["fee"] = None
         elif is_greeting or is_yoga_keyword:
             state["stage"] = "ENROLL_ASKED"
-            state["timing"] = None
-            state["package"] = None
-            state["fee"] = None
-    elif state["stage"] == "ENROLL_ASKED":
-        if is_confirmation and not is_q:
-            state["stage"] = "ENROLL_CONFIRMED"
             state["timing"] = None
             state["package"] = None
             state["fee"] = None
@@ -303,27 +298,43 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
         state["stage"] = "TIMING_SELECTED"
 
     # --- 2. Detect Package / Duration Slot ---
-    if state.get("timing") or state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED"]:
-        if text_lower in ["3", "3m", "3 month", "3 months", "three"] or any(p in text_lower for p in ["3 month", "1750", "₹1750", "1,750"]):
-            state["package"] = "3 Months"
-            state["fee"] = "₹1,750"
+    # We allow package detection at any stage if the text contains clear indicators,
+    # or if the user is in a package selection stage (e.g. TIMING_SELECTED, PACKAGE_ASKED, PACKAGE_SELECTED).
+    is_package_stage = (state.get("timing") is not None or state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED"])
+    
+    is_package_detected = False
+    if (text_lower in ["3", "3m", "3 month", "3 months"] or any(p in text_lower for p in ["3 month", "1750", "1,750", "₹1,750"])) or (is_package_stage and text_lower in ["3", "three"]):
+        state["package"] = "3 Months"
+        state["fee"] = "₹1,750"
+        is_package_detected = True
+    elif (text_lower in ["1", "1m", "1 month", "one month"] or any(p in text_lower for p in ["1 month", "700", "₹700"])) or (is_package_stage and text_lower in ["1", "one"]):
+        state["package"] = "1 Month"
+        state["fee"] = "₹700"
+        is_package_detected = True
+    elif (text_lower in ["6", "6m", "6 month", "6 months"] or any(p in text_lower for p in ["6 month", "3200", "3,200", "₹3,200"])) or (is_package_stage and text_lower in ["6", "six"]):
+        state["package"] = "6 Months"
+        state["fee"] = "₹3,200"
+        is_package_detected = True
+    elif (text_lower in ["12", "1 year", "1yr", "1y", "yearly"] or any(p in text_lower for p in ["1 year", "5000", "5,000", "₹5,000"])) or (is_package_stage and text_lower in ["12", "twelve"]):
+        state["package"] = "1 Year"
+        state["fee"] = "₹5,000"
+        is_package_detected = True
+
+    # Update funnel stage dynamically based on timing and package availability
+    if state.get("timing") and state.get("package"):
+        if state["stage"] not in ["APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]:
             state["stage"] = "READY_FOR_APP_LINK"
-        elif text_lower in ["1", "1m", "1 month", "one"] or any(p in text_lower for p in ["1 month", "700", "₹700"]):
-            state["package"] = "1 Month"
-            state["fee"] = "₹700"
-            state["stage"] = "READY_FOR_APP_LINK"
-        elif text_lower in ["6", "6m", "6 month", "6 months", "six"] or any(p in text_lower for p in ["6 month", "3200", "₹3200", "3,200"]):
-            state["package"] = "6 Months"
-            state["fee"] = "₹3,200"
-            state["stage"] = "READY_FOR_APP_LINK"
-        elif text_lower in ["12", "1 year", "1yr", "1y", "yearly"] or any(p in text_lower for p in ["1 year", "5000", "₹5000", "5,000"]):
-            state["package"] = "1 Year"
-            state["fee"] = "₹5,000"
-            state["stage"] = "READY_FOR_APP_LINK"
+    elif state.get("timing"):
+        if state["stage"] not in ["READY_FOR_APP_LINK", "APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]:
+            state["stage"] = "TIMING_SELECTED"
+    elif state.get("package"):
+        if state["stage"] not in ["READY_FOR_APP_LINK", "APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]:
+            state["stage"] = "PACKAGE_SELECTED"
 
     # Stage Transition when user confirms timing -> ask for package duration
     if state["stage"] == "TIMING_SELECTED" and is_confirmation and not is_q and not state.get("package"):
         state["stage"] = "PACKAGE_ASKED"
+
 
     # --- 4. Detect App Install & Profile Completion ---
     if state["stage"] in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
