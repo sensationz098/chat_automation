@@ -198,6 +198,20 @@ def is_user_asking_question(text: str) -> bool:
     if txt in ["hi", "hii", "hello", "hey", "yoga", "yog", "online yoga", "yoga classes", "namaste"]:
         return False
 
+    # Strong single-word keywords that are always questions/informational requests
+    strong_question_keywords = [
+        "price", "prices", "pricing", "cost", "costs", "costly", "expensive", 
+        "fee", "fees", "charge", "charges", "rate", "rates", "rupee", "rupees", "rs",
+        "pay", "payment", "payments", "refund", "refunds",
+        "discount", "discounts", "offer", "offers", "coupon", "coupons",
+        "syllabus", "curriculum", "timing", "timings", "schedule", "schedules",
+        "demo", "trial", "sample", "video", "videos", "recording", "recordings",
+        "detail", "details", "info", "information", "link", "links", "website",
+        "teacher", "teachers", "trainer", "trainers", "instructor", "instructors", "faculty"
+    ]
+    if any(kw in txt for kw in strong_question_keywords):
+        return True
+
     # Priority keywords for class video/demo requests (triggers question mode even for short phrases)
     video_keywords = [
         "video", "videos", "demo", "recording", "recordings",
@@ -209,10 +223,11 @@ def is_user_asking_question(text: str) -> bool:
     # General informational question keywords
     question_keywords = [
         "who", "what", "where", "how", "why", "which", "when",
-        "kitne", "kitna", "kya", "kaun", "kaunsa", "kaunsi", "kaise",
+        "kitne", "kitna", "kya", "kaun", "kaunsa", "kaunsi", "kaise", "kyu", "kyon", "kab",
         "teacher", "teachers", "faculty", "student", "students",
         "discount", "costly", "expensive", "syllabus", "demo", "trial",
-        "hindi", "english", "classes", "fees"
+        "hindi", "english", "classes", "fees", "language", "languages",
+        "btao", "batao", "bataen", "bataiye", "detail", "details", "info", "information"
     ]
     
     words = txt.split()
@@ -221,6 +236,7 @@ def is_user_asking_question(text: str) -> bool:
         return True
         
     return False
+
 
 
 def extract_and_update_slots(phone: str, text: str) -> dict:

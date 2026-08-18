@@ -141,64 +141,212 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
 # ---------------------------------------------------------------------------
 # AI reply pipeline (async — no blocking calls)
 # ---------------------------------------------------------------------------
+# async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
+#     """Fully async AI reply — all I/O is non-blocking."""
+#     t0 = time.perf_counter()
+
+#     # Pre-written reply for ad trigger message
+#     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
+#         reply = "Hi Sir/Mam, Welcome to Sensationz Media and arts, How i can help u?"
+#         t_send = time.perf_counter()
+#         await send_text_message_async(phone, reply)
+#         print(f"[TIMING] {phone} pre-written_send: {time.perf_counter() - t_send:.2f}s")
+#         latency_sec = round(time.time() - start_time, 2) if start_time else None
+#         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+#         log_message(phone, "ai", reply)
+#         print(f"[TIMING] {phone} pre-written TOTAL: {time.perf_counter() - t0:.2f}s")
+#         return
+
+#     # 1. Slot extraction
+#     t_slots = time.perf_counter()
+#     state = extract_and_update_slots(phone, text)
+#     is_q = is_user_asking_question(text)
+#     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
+
+#     # 2. RAG AI reply
+#     t_rag = time.perf_counter()
+#     full_reply = await ask_rag_async(text, chat_history=history, state=state)
+#     full_reply = full_reply.strip()
+#     print(f"[TIMING] {phone} rag_query: {time.perf_counter() - t_rag:.2f}s")
+
+#     # Post-LLM State Transitions
+#     if state.get("stage") == "READY_FOR_APP_LINK":
+#         state["stage"] = "APP_LINK_SENT"
+#     elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
+#         state["coupon_sent"] = True
+#         state["stage"] = "COUPON_SENT"
+
+#     # 4. Low-confidence check
+#     low_conf_triggers = ["unable to process", "unable to answer", "i don't have information", "not sure", "sorry, the ai service"]
+#     if any(trigger in full_reply.lower() for trigger in low_conf_triggers):
+#         state["low_confidence_count"] = state.get("low_confidence_count", 0) + 1
+#     else:
+#         state["low_confidence_count"] = 0
+
+#     if state.get("low_confidence_count", 0) >= 2:
+#         full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
+
+#     save_user_state(phone, state)
+
+#     # 5. Send reply (async)
+#     t_send = time.perf_counter()
+#     await send_text_message_async(phone, full_reply)
+#     print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
+
+#     latency_sec = round(time.time() - start_time, 2) if start_time else None
+#     print(f"[TIMING] {phone} ai_reply TOTAL: {time.perf_counter() - t0:.2f}s (wall={latency_sec}s)")
+#     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
+#     log_message(phone, "ai", full_reply)
+
+import re
+
+AGENT_SUGGEST_PATTERN = re.compile(
+    r"to know more about this,?\s*you can type\s*\*?agent\*?\s*so our support team can assist you shortly\.?",
+    re.IGNORECASE
+)
+
+FLOW_FOLLOWUPS = {
+    "NEW": None,  # greeting stage — no followup needed, RAG/greeting handles it
+    "ENROLL_ASKED": None,
+    "ENROLL_CONFIRMED": (
+        "\n\nBy the way, which timing would you prefer for your classes? 😊\n"
+        "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
+        "Afternoon: 12:00–1:00 PM\n"
+        "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
+    ),
+    "TIMING_SELECTED": (
+        "\n\nWould you like to go ahead and pick a package duration too? 😊\n"
+        "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
+    ),
+    "PACKAGE_ASKED": (
+        "\n\nWhich package duration would you like to start with? 😊\n"
+        "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
+    ),
+    "APP_LINK_SENT": (
+        "\n\nOnce you've downloaded the app and created your profile, just let me know here! 😊"
+    ),
+}
+
+
 async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
-    """Fully async AI reply — all I/O is non-blocking."""
     t0 = time.perf_counter()
 
-    # Pre-written reply for ad trigger message
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
         reply = "Hi Sir/Mam, Welcome to Sensationz Media and arts, How i can help u?"
-        t_send = time.perf_counter()
         await send_text_message_async(phone, reply)
-        print(f"[TIMING] {phone} pre-written_send: {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
         log_message(phone, "ai", reply)
-        print(f"[TIMING] {phone} pre-written TOTAL: {time.perf_counter() - t0:.2f}s")
         return
 
-    # 1. Slot extraction
+    # Fetch previous state stage before slot extraction
+    try:
+        pre_state = get_user_state(phone)
+        prev_stage = pre_state.get("stage") or "NEW"
+    except Exception:
+        prev_stage = "NEW"
+
     t_slots = time.perf_counter()
     state = extract_and_update_slots(phone, text)
     is_q = is_user_asking_question(text)
     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
 
-    # 2. RAG AI reply
+    # Define flags for fresh transitions and confirmations/greetings
+    text_lower = text.lower().strip()
+    is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
+    is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
+
+    is_fresh_enroll_confirmed = (prev_stage != "ENROLL_CONFIRMED" and state["stage"] == "ENROLL_CONFIRMED")
+    is_fresh_package_asked = (prev_stage != "PACKAGE_ASKED" and state["stage"] == "PACKAGE_ASKED")
+
+    # --- DETERMINISTIC STAGE GUARDS ---
+    if not is_q and state["stage"] == "ENROLL_CONFIRMED" and (is_fresh_enroll_confirmed or is_confirmation or is_greeting):
+        reply = FLOW_FOLLOWUPS["ENROLL_CONFIRMED"].strip()
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+    if not is_q and state["stage"] == "PACKAGE_ASKED" and (is_fresh_package_asked or is_confirmation or is_greeting):
+        reply = FLOW_FOLLOWUPS["PACKAGE_ASKED"].strip()
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+
+    if not is_q and state["stage"] == "READY_FOR_APP_LINK":
+        package = state.get("package") or "3 Months"
+        fee = state.get("fee") or "₹1,750"
+        reply = (
+            f"Great choice! 😊 You've selected the {package} package for {fee}.\n\n"
+            "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
+            "Please download the app here:\n\n"
+            "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
+            "Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!"
+        )
+        state["stage"] = "APP_LINK_SENT"
+        save_user_state(phone, state)
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+    if state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
+        reply = (
+            "🎉 Welcome to the Sensationz Yoga family! 🌸\n"
+            "Your app setup and profile are complete.\n\n"
+            "🎁 Your personalized welcome coupon code is: **SENSZAPP**\n\n"
+            "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
+        )
+        state["coupon_sent"] = True
+        state["stage"] = "COUPON_SENT"
+        save_user_state(phone, state)
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+    # --- Genuine question / off-flow topic — goes to RAG ---
     t_rag = time.perf_counter()
     full_reply = await ask_rag_async(text, chat_history=history, state=state)
     full_reply = full_reply.strip()
     print(f"[TIMING] {phone} rag_query: {time.perf_counter() - t_rag:.2f}s")
 
-    # Post-LLM State Transitions
-    if state.get("stage") == "READY_FOR_APP_LINK":
-        state["stage"] = "APP_LINK_SENT"
-    elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
-        state["coupon_sent"] = True
-        state["stage"] = "COUPON_SENT"
+    # Strip any "type agent" line the LLM generated, count it silently,
+    # only resurface after 2 CONSECUTIVE flagged replies.
+    flagged_this_turn = bool(AGENT_SUGGEST_PATTERN.search(full_reply))
+    full_reply = AGENT_SUGGEST_PATTERN.sub("", full_reply).strip()
 
-    # 4. Low-confidence check
-    low_conf_triggers = ["unable to process", "unable to answer", "i don't have information", "not sure", "sorry, the ai service"]
-    if any(trigger in full_reply.lower() for trigger in low_conf_triggers):
+    if flagged_this_turn:
         state["low_confidence_count"] = state.get("low_confidence_count", 0) + 1
     else:
         state["low_confidence_count"] = 0
 
     if state.get("low_confidence_count", 0) >= 2:
         full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
+        state["low_confidence_count"] = 0  # reset after nudging, don't nag every message after
+    elif not is_q:
+        # No repeated-failure nudge needed — instead, gently steer back to
+        # the flow if enrollment isn't complete yet. Deterministic, not LLM.
+        followup = FLOW_FOLLOWUPS.get(state.get("stage"))
+        if followup:
+            full_reply += followup
 
     save_user_state(phone, state)
 
-    # 5. Send reply (async)
     t_send = time.perf_counter()
     await send_text_message_async(phone, full_reply)
     print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
 
     latency_sec = round(time.time() - start_time, 2) if start_time else None
-    print(f"[TIMING] {phone} ai_reply TOTAL: {time.perf_counter() - t0:.2f}s (wall={latency_sec}s)")
     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
     log_message(phone, "ai", full_reply)
-
-
 # ---------------------------------------------------------------------------
 # Main processing pipeline (NO per-phone Redis lock — debouncer handles it)
 # ---------------------------------------------------------------------------
