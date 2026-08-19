@@ -28,6 +28,8 @@ from chat_state import (
     save_user_state,
     extract_and_update_slots,
     is_user_asking_question,
+    matches_any,
+    advance_stage,
 )
 from batching import add_message_to_batch_async
 from tasks import is_target_ad_or_message, get_next_agent_email
@@ -152,7 +154,7 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         await assign_chat_to_agent_async(phone, agent)
 
     text_lower = text.lower()
-    if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
+    if matches_any(text_lower, AGENT_TRIGGER_WORDS):
         reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
         await send_text_message_async(phone, reply)
         mark_escalated(phone)
@@ -175,11 +177,11 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
     
     # Post-LLM State Transitions
     if state.get("stage") == "READY_FOR_APP_LINK":
-        state["stage"] = "APP_LINK_SENT"
+        state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
         save_user_state(phone, state)
     elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
         state["coupon_sent"] = True
-        state["stage"] = "COUPON_SENT"
+        state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
         save_user_state(phone, state)
 
     await send_text_message_async(phone, full_reply)

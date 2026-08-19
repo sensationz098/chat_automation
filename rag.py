@@ -98,7 +98,7 @@ def _is_transactional_input(text: str) -> bool:
         "yes", "yeah", "yep", "sure", "ok", "okay", "hi", "hii", "hello", "hey",
         "morning", "evening", "afternoon", "6-7am", "7-8am", "8-9am", "10-11am",
         "12-1pm", "4-5pm", "5-6pm", "6-7pm", "7-8pm", "1 month", "3 months", "6 months",
-        "1 year", "installed", "downloaded", "done"
+        "1 year", "installed", "downloaded", "done","one month", "three months", "three" 
     ]
     return txt in procedural_triggers
 
@@ -165,7 +165,15 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
         messages = [SystemMessage(content=sys_prompt_content)]
         messages.extend(_build_history_messages(chat_history))
 
-        user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
+        user_msg = (
+            f"Context:\n{context}\n\n"
+            f"Customer's message: {question}\n\n"
+            "INSTRUCTION FOR MULTI-QUESTION INPUTS:\n"
+            "1. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
+            "2. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
+            "3. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
+            "4. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
+        )
         messages.append(HumanMessage(content=user_msg))
 
         # Call LLM model asynchronously to generate response
@@ -205,7 +213,15 @@ def stream_rag(question: str, chat_history: list = None, state: dict = None):
         messages = [SystemMessage(content=sys_prompt_content)]
         messages.extend(_build_history_messages(chat_history))
 
-        user_msg = f"Context:\n{context}\n\nCustomer's message: {question}" if context else f"Customer's message: {question}"
+        user_msg = (
+            f"Context:\n{context}\n\n"
+            f"Customer's message: {question}\n\n"
+            "INSTRUCTION FOR MULTI-QUESTION INPUTS:\n"
+            "1. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
+            "2. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
+            "3. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
+            "4. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
+        )
         messages.append(HumanMessage(content=user_msg))
 
         response = llm.invoke(messages)

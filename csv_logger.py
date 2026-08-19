@@ -45,4 +45,5 @@ def log_message(phone: str, role: str, message: str):
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
             writer.writerow(row)
 
-    print(f"[csv_logger] [{role.upper()}] {phone}: {message[:80]}...")
+    safe_message = message[:80].encode('ascii', errors='replace').decode('ascii')
+    print(f"[csv_logger] [{role.upper()}] {phone}: {safe_message}...")

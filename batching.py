@@ -20,7 +20,7 @@ from tasks import process_incoming_message_async
 
 load_dotenv()
 
-BATCH_WAIT_SECONDS = 2  # Reduced from 0.5s for faster response
+BATCH_WAIT_SECONDS = 5  # Group fragments within 5 seconds debounce window
 
 redis_conn = get_redis_connection()
 _active_debounce_tasks = {}
@@ -49,7 +49,7 @@ async def _async_debounce_timer(phone: str, token: str):
             return
 
         messages = [m.decode() if isinstance(m, bytes) else m for m in raw_messages]
-        combined_text = " ".join(messages)
+        combined_text = "\n".join(messages)
 
         # Retrieve referral if any
         raw_referral = redis_conn.get(referral_key)

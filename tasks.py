@@ -27,9 +27,12 @@ from chat_state import (
     save_user_state,
     extract_and_update_slots,
     is_user_asking_question,
+    matches_any,
+    advance_stage,
 )
 from rag import ask_rag_async
 from redis_client import get_redis_connection
+import re
 
 load_dotenv()
 
@@ -43,7 +46,7 @@ PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
 # Round-robin pool (only non-None entries)
 AGENT_POOL = [e for e in [PRIORITY_AGENT_EMAIL_ANOTHER_1, PRIORITY_AGENT_EMAIL_ANOTHER_2] if e]
 
-AGENT_TRIGGER_WORDS = ["agent"]
+AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
 
 INFO_INTENT_KEYWORDS = [
@@ -55,9 +58,9 @@ INFO_INTENT_KEYWORDS = [
     "platform", "app",
     "syllabus", "topics", "course",
     "trial", "demo", "sample", "reference video",
-    "eligib", "age","eligible"
+    "eligib", "age", "eligible",
     "classes per week", "how many days", "class frequency",
-    "benefit","benefits","fayda","fayada",
+    "benefit", "benefits", "fayda", "fayada",
     "what to bring", "keep ready", "mat", "clothing",
     "online", "offline", "virtual",
     "device", "laptop", "mobile", "tablet",
@@ -66,9 +69,9 @@ INFO_INTENT_KEYWORDS = [
 
     # Section 21 phrase variations
     "monthly fee", "quarterly fee", "six-month fee", "annual fee",
-    "live yoga", "sensationz app",
+    "live yoga", "sensationz app", "sensationz",
     "morning batch", "evening batch",
-    "trial session", "trial yoga class","class","schedule"
+    "trial session", "trial yoga class", "class", "schedule",
 
     # General intent phrases (from your earlier chats)
     "yoga", "sikhna", "seekhna", "learn yoga", "yoga krna",
@@ -76,7 +79,7 @@ INFO_INTENT_KEYWORDS = [
     "about company", "location", "branch", "address",
     "social media", "instagram", "facebook", "youtube", "website",
     "recording", "record", "leave", "cancel", "refund", "no refund",
-    "minimum age", "8 year","batao","guide"
+    "minimum age", "8 year", "batao", "guide"
 ]
 # ---------------------------------------------------------------------------
 # Round-robin agent selection (Redis INCR — atomic, multi-process safe)
@@ -233,47 +236,60 @@ def is_info_intent(text: str) -> bool:
     t = text.lower().strip()
     return any(kw in t for kw in INFO_INTENT_KEYWORDS)
 
-import re
+def should_skip_followup(full_reply: str, stage: str) -> bool:
+    reply_lower = full_reply.lower()
+    if stage in ["ENROLL_CONFIRMED", "PACKAGE_SELECTED"]:
+        timing_kws = ["timing", "batch", "time slot", "schedule", "time", "samay", "kab"]
+        if any(kw in reply_lower for kw in timing_kws):
+            return True
+    elif stage in ["TIMING_SELECTED", "PACKAGE_ASKED"]:
+        pkg_kws = ["package", "duration", "month", "months", "year", "fee", "fees", "price", "cost", "mahina"]
+        if any(kw in reply_lower for kw in pkg_kws):
+            return True
+    elif stage in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+        app_kws = ["download", "install", "play store", "app store", "android", "ios", "app link", "profile"]
+        if any(kw in reply_lower for kw in app_kws) or "http" in reply_lower:
+            return True
+    return False
 
 AGENT_SUGGEST_PATTERN = re.compile(
     r"to know more about this,?\s*you can type\s*\*?agent\*?\s*so our support team can assist you shortly\.?",
     re.IGNORECASE
 )
 
-FLOW_FOLLOWUPS = {
-    "NEW": None,  # greeting stage — no followup needed, RAG/greeting handles it
-    "ENROLL_ASKED": None,
-    "ENROLL_CONFIRMED": (
-        "\n\nBy the way, which timing would you prefer for your classes? 😊\n"
-        "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
-        "Afternoon: 12:00–1:00 PM\n"
-        "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
-    ),
-    "TIMING_SELECTED": (
-        "\n\nWould you like to go ahead and pick a package duration too? 😊\n"
-        "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
-    ),
-    "PACKAGE_ASKED": (
-        "\n\nWhich package duration would you like to start with? 😊\n"
-        "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
-    ),
-    "PACKAGE_SELECTED": (
-        "\n\nBy the way, which timing would you prefer for your classes? 😊\n"
-        "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
-        "Afternoon: 12:00–1:00 PM\n"
-        "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
-    ),
-    "READY_FOR_APP_LINK": (
-        "\n\nTo proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
-        "Please download the app here:\n\n"
-        "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-        "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
-        "Once you've downloaded the app and created your profile, let me know here so I can activate your welcome coupon!"
-    ),
-    "APP_LINK_SENT": (
-        "\n\nOnce you've downloaded the app and created your profile, just let me know here! 😊"
-    ),
-}
+def get_flow_followup(state: dict) -> str:
+    # 1. If enrollment completed (coupon sent or profile completed)
+    if state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"] or state.get("coupon_sent"):
+        return None
+        
+    # 2. If app links are sent or ready for app link
+    if state.get("stage") in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+        return (
+            "\n\nWonderful! 😊 To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
+            "Please download the app here:\n\n"
+            "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
+            "Once you've downloaded the app and created your profile, let me know here so I can activate your welcome coupon!"
+        )
+        
+    # 3. If timing is selected but package is missing
+    if state.get("timing") and not state.get("package"):
+        return (
+            "\n\nWonderful! 😊 Which package duration would you like to start with?\n"
+            "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
+        )
+        
+    # 4. If timing is missing
+    if not state.get("timing"):
+        if state.get("stage") == "NEW":
+            return None
+        return (
+            "\n\nWonderful! 😊 Which timing would you prefer for your classes?\n"
+            "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
+            "Afternoon: 12:00–1:00 PM\n"
+            "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
+        )
+    return None
 
 
 async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
@@ -301,40 +317,48 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     # Define flags for fresh transitions and confirmations/greetings
     text_lower = text.lower().strip()
-    is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
-    # is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
-    is_confirmation = any(w in text_lower for w in [
-            "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
-            "interested", "i want to join", "ha", "haan", "han",
-            "karna hai", "kar do", "haan ji", "proceed"
-        ])
+    GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
+    CONFIRMATION_WORDS = [
+        "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
+        "interested", "i want to join", "haan", "han",
+        "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
+    ]
+    is_greeting = matches_any(text_lower, GREETING_WORDS)
+    is_confirmation = matches_any(text_lower, CONFIRMATION_WORDS)
+
     is_fresh_enroll_confirmed = (prev_stage != "ENROLL_CONFIRMED" and state["stage"] == "ENROLL_CONFIRMED")
     is_fresh_package_asked = (prev_stage != "PACKAGE_ASKED" and state["stage"] == "PACKAGE_ASKED")
+    is_fresh_timing_selected = (prev_stage != "TIMING_SELECTED" and state["stage"] == "TIMING_SELECTED")
+    is_fresh_package_selected = (prev_stage != "PACKAGE_SELECTED" and state["stage"] == "PACKAGE_SELECTED")
 
     # --- DETERMINISTIC STAGE GUARDS ---
     if not is_q and not is_info_intent(text) and state["stage"] == "ENROLL_CONFIRMED" and (is_fresh_enroll_confirmed or is_confirmation or is_greeting):
-        reply = FLOW_FOLLOWUPS["ENROLL_CONFIRMED"].strip()
-        await send_text_message_async(phone, reply)
-        latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
-        return
+        reply = get_flow_followup(state)
+        if reply:
+            reply = reply.strip()
+            await send_text_message_async(phone, reply)
+            latency_sec = round(time.time() - start_time, 2) if start_time else None
+            save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+            log_message(phone, "ai", reply)
+            return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_ASKED" and (is_fresh_package_asked or is_confirmation or is_greeting):
-        reply = FLOW_FOLLOWUPS["PACKAGE_ASKED"].strip()
-        await send_text_message_async(phone, reply)
-        latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
-        return
+        reply = get_flow_followup(state)
+        if reply:
+            reply = reply.strip()
+            await send_text_message_async(phone, reply)
+            latency_sec = round(time.time() - start_time, 2) if start_time else None
+            save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+            log_message(phone, "ai", reply)
+            return
 
-    if not is_q and not is_info_intent(text) and  state["stage"] == "TIMING_SELECTED" and not state.get("package"):
+    if not is_q and not is_info_intent(text) and state["stage"] == "TIMING_SELECTED" and not state.get("package") and (is_fresh_timing_selected or is_confirmation or is_greeting):
         reply = (
-            f"Great choice! 😊 You've selected the {state.get('timing')} batch.\n\n"
+            f"Wonderful! 😊 you've selected the {state.get('timing')} batch.\n\n"
             "Would you like to go ahead and pick a package duration too? 😊\n"
             "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
         )
-        state["stage"] = "PACKAGE_ASKED"
+        state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -342,15 +366,15 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing"):
+    if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing") and (is_fresh_package_selected or is_confirmation or is_greeting):
         reply = (
-            f"Great choice! 😊 You've selected the {state.get('package')} package.\n\n"
-            "By the way, which timing would you prefer for your classes? 😊\n"
+            f"Wonderful! 😊 you've selected the {state.get('package')} package.\n\n"
+            "Which timing would you prefer for your classes? 😊\n"
             "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
             "Afternoon: 12:00–1:00 PM\n"
             "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
         )
-        state["stage"] = "ENROLL_CONFIRMED"
+        state["stage"] = advance_stage(state["stage"], "ENROLL_CONFIRMED")
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -363,14 +387,14 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750"
         reply = (
-            f"Great choice! 😊 You've selected the {package} package for {fee}.\n\n"
+            f"Wonderful! 😊 you've selected the {package} package for {fee}.\n\n"
             "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
             "Please download the app here:\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
             "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
-            "Once you've downloaded the app and created your profile, let me know here so I can activate your personalized welcome coupon!"
+            "Once you've downloaded the app and created your profile, let me know here so I can activate your welcome coupon!"
         )
-        state["stage"] = "APP_LINK_SENT"
+        state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -386,7 +410,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
         )
         state["coupon_sent"] = True
-        state["stage"] = "COUPON_SENT"
+        state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -415,13 +439,13 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         state["low_confidence_count"] = 0  # reset after nudging, don't nag every message after
     else:
         # Always steer back to the flow if enrollment isn't complete yet. Deterministic, not LLM.
-        followup = FLOW_FOLLOWUPS.get(state.get("stage"))
-        if followup:
+        followup = get_flow_followup(state)
+        if followup and not should_skip_followup(full_reply, state.get("stage")):
             full_reply += followup
 
     # Post-LLM State Transitions
     if state.get("stage") == "READY_FOR_APP_LINK":
-        state["stage"] = "APP_LINK_SENT"
+        state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
 
     save_user_state(phone, state)
 
@@ -497,7 +521,7 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
 
     # 7. Check for human agent trigger words
     text_lower = text.lower()
-    if any(word in text_lower for word in AGENT_TRIGGER_WORDS):
+    if matches_any(text_lower, AGENT_TRIGGER_WORDS):
         await handle_agent_handoff_async(phone, start_time)
         print(f"[TIMING] {phone} PIPELINE TOTAL: {time.perf_counter() - t0:.2f}s")
         return

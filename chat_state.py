@@ -28,6 +28,25 @@ import threading
 _memory_lock = threading.Lock()
 _memory_sessions: dict[str, dict] = {}
 
+from rapidfuzz import fuzz
+
+def matches_any(text: str, words: list[str]) -> bool:
+    t = text.lower().strip()
+    if any(re.search(rf"\b{re.escape(w)}\b", t) for w in words):
+        return True
+    if len(t) <= 20:
+        return any(fuzz.ratio(t, w) > 85 for w in words)
+    return False
+
+STAGE_ORDER = ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED", "TIMING_SELECTED", "PACKAGE_ASKED",
+               "PACKAGE_SELECTED", "READY_FOR_APP_LINK", "APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]
+
+def advance_stage(current: str, proposed: str) -> str:
+    cur_idx = STAGE_ORDER.index(current) if current in STAGE_ORDER else 0
+    new_idx = STAGE_ORDER.index(proposed) if proposed in STAGE_ORDER else 0
+    return proposed if new_idx >= cur_idx else current
+
+
 
 def mark_escalated(phone: str):
     """
@@ -177,7 +196,13 @@ def save_user_state(phone: str, state: dict):
     # Persist in Supabase DB
     if supabase:
         try:
-            supabase.table("user_session_state").upsert(state).execute()
+            SUPABASE_STATE_COLUMNS = {
+                "phone", "stage", "timing", "package", "fee", "app_installed",
+                "profile_created", "coupon_sent", "is_escalated", "is_target_ad",
+                "low_confidence_count", "already_assigned"
+            }
+            db_state = {k: v for k, v in state.items() if k in SUPABASE_STATE_COLUMNS}
+            supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()
         except Exception as e:
             print(f"[chat_state] Supabase save_user_state failed: {e}")
 
@@ -239,6 +264,13 @@ def is_user_asking_question(text: str) -> bool:
 
 
 
+GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
+CONFIRMATION_WORDS = [
+    "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
+    "interested", "i want to join", "haan", "han",
+    "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
+]
+
 def extract_and_update_slots(phone: str, text: str) -> dict:
     """
     Analyzes incoming user message, extracts batch timing or package selection,
@@ -250,24 +282,20 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
     is_q = is_user_asking_question(text)
 
     # Keywords for initial contact vs confirmation vs slots
-    is_greeting = any(w in text_lower for w in ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"])
+    is_greeting = matches_any(text_lower, GREETING_WORDS)
     is_yoga_keyword = any(w in text_lower for w in ["yoga", "yog", "yaga", "yogi", "yoga classes", "online yoga", "yoga details", "yoga course"])
-    # is_confirmation = any(w in text_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join", "interested", "i want to join", "ha", "haan", "han", "karna hai", "kar do", "haan ji", "proceed"])
-    is_confirmation = any(w in text_lower for w in [
-            "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
-            "interested", "i want to join", "ha", "haan", "han",
-            "karna hai", "kar do", "haan ji", "proceed"
-        ])
+    is_confirmation = matches_any(text_lower, CONFIRMATION_WORDS)
+
     # Stage 0: Initial Greeting & Enrollment Confirmation Check
     if state["stage"] in ["NEW", "ENROLL_ASKED"]:
         has_enroll_intent = (is_confirmation or any(w in text_lower for w in ["price", "fees", "fee", "timing", "timings", "enroll", "join", "classes", "start", "how to", "kaise", "proceed"]))
         if has_enroll_intent:
-            state["stage"] = "ENROLL_CONFIRMED"
+            state["stage"] = advance_stage(state["stage"], "ENROLL_CONFIRMED")
             state["timing"] = None
             state["package"] = None
             state["fee"] = None
         elif is_greeting or is_yoga_keyword:
-            state["stage"] = "ENROLL_ASKED"
+            state["stage"] = advance_stage(state["stage"], "ENROLL_ASKED")
             state["timing"] = None
             state["package"] = None
             state["fee"] = None
@@ -275,31 +303,31 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
     # --- 1. Detect Batch Timing Slot ---
     if any(t in text_lower for t in ["5 6 pm", "5-6 pm", "5-6pm", "5 to 6", "5:00 pm", "5pm", "5 pm"]):
         state["timing"] = "5:00–6:00 PM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["6 7 pm", "6-7 pm", "6-7pm", "6 to 7 pm", "6:00 pm", "6pm", "6 pm"]):
         state["timing"] = "6:00–7:00 PM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["7 8 pm", "7-8 pm", "7-8pm", "7 to 8 pm", "7:00 pm", "7pm", "7 pm"]):
         state["timing"] = "7:00–8:00 PM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["4 5 pm", "4-5 pm", "4-5pm", "4 to 5", "4:00 pm", "4pm", "4 pm"]):
         state["timing"] = "4:00–5:00 PM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["12 1 pm", "12-1 pm", "12-1pm", "12 to 1", "12:00", "12pm", "12 pm"]):
         state["timing"] = "12:00–1:00 PM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["6 7 am", "6-7 am", "6-7am", "6 to 7 am", "6:00 am", "6am", "6 am"]):
         state["timing"] = "6:00–7:00 AM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["7 8 am", "7-8 am", "7-8am", "7 to 8 am", "7:00 am", "7am", "7 am"]):
         state["timing"] = "7:00–8:00 AM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["8 9 am", "8-9 am", "8-9am", "8 to 9 am", "8:00 am", "8am", "8 am"]):
         state["timing"] = "8:00–9:00 AM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif any(t in text_lower for t in ["10 11 am", "10-11 am", "10-11am", "10 to 11", "10:00 am", "10am", "10 am"]):
         state["timing"] = "10:00–11:00 AM"
-        state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
 
     # --- 2. Detect Package / Duration Slot ---
     # We allow package detection at any stage if the text contains clear indicators,
@@ -326,18 +354,15 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
 
     # Update funnel stage dynamically based on timing and package availability
     if state.get("timing") and state.get("package"):
-        if state["stage"] not in ["APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]:
-            state["stage"] = "READY_FOR_APP_LINK"
+        state["stage"] = advance_stage(state["stage"], "READY_FOR_APP_LINK")
     elif state.get("timing"):
-        if state["stage"] not in ["READY_FOR_APP_LINK", "APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]:
-            state["stage"] = "TIMING_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
     elif state.get("package"):
-        if state["stage"] not in ["READY_FOR_APP_LINK", "APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]:
-            state["stage"] = "PACKAGE_SELECTED"
+        state["stage"] = advance_stage(state["stage"], "PACKAGE_SELECTED")
 
     # Stage Transition when user confirms timing -> ask for package duration
     if state["stage"] == "TIMING_SELECTED" and is_confirmation and not is_q and not state.get("package"):
-        state["stage"] = "PACKAGE_ASKED"
+        state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
 
 
     # --- 4. Detect App Install & Profile Completion ---
@@ -345,7 +370,7 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
         if any(w in text_lower for w in ["profile created", "both done", "profile done", "profile complete", "created profile", "done", "ho gaya", "ho gya", "kar liya", "kr liya", "bana liya", "download kar liya", "download kr liya", "install kar liya", "install kr liya", "app done"]):
             state["app_installed"] = True
             state["profile_created"] = True
-            state["stage"] = "PROFILE_COMPLETED"
+            state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
         elif any(w in text_lower for w in ["installed", "downloaded", "done app", "app done"]) and not state["profile_created"]:
             state["app_installed"] = True
 
