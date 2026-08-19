@@ -18,6 +18,7 @@ from langchain_qdrant import QdrantVectorStore
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from prompt import format_system_prompt
+import json
 
 # --- Qdrant Vector DB Connection ---
 retriever = None
@@ -56,6 +57,42 @@ llm = ChatOpenAI(
 )
 print(f"[rag.py] LLM initialized: gpt-4.1-nano")
 
+VALID_TIMINGS = [
+    "5:00–6:00 AM", "6:00–7:00 AM", "7:00–8:00 AM", "8:00–9:00 AM", "10:00–11:00 AM",
+    "12:00–1:00 PM", "4:00–5:00 PM", "5:00–6:00 PM", "6:00–7:00 PM", "7:00–8:00 PM"
+]   
+VALID_PACKAGES = {"1 Month": "₹700", "3 Months": "₹1,750", "6 Months": "₹3,200", "1 Year": "₹5,000"}
+
+async def extract_slot_llm(text: str) -> dict:
+    """
+    Determines if the user's message clearly selects a batch timing and/or
+    package duration, even with non-exact phrasing ("teen mahine", "quarterly",
+    "3rd wala", "1 saal ka"). Returns {"timing": str|None, "package": str|None}.
+    Never guesses — returns None for anything not unambiguously stated.
+    """
+    sys_msg = SystemMessage(content=(
+        "You extract structured slot values from a WhatsApp yoga-enrollment message.\n"
+        f"Valid timings: {VALID_TIMINGS}\n"
+        f"Valid packages: {list(VALID_PACKAGES.keys())}\n"
+        "If the message CLEARLY and UNAMBIGUOUSLY selects ONE of these timings and/or "
+        "ONE of these packages (any language, phrasing, or typo), return the exact matching "
+        "string from the lists above. If ambiguous or not selected, return null for that field. "
+        "NEVER guess a value the user did not clearly indicate.\n"
+        'Respond ONLY with strict JSON: {"timing": "<value or null>", "package": "<value or null>"}'
+    ))
+    try:
+        resp = await llm.ainvoke([sys_msg, HumanMessage(content=text)])
+        raw = resp.content.strip().strip("`").replace("json\n", "").strip()
+        data = json.loads(raw)
+        timing = data.get("timing")
+        package = data.get("package")
+        return {
+            "timing": timing if timing in VALID_TIMINGS else None,
+            "package": package if package in VALID_PACKAGES else None,
+        }
+    except Exception as e:
+        print(f"[extract_slot_llm] error: {e}")
+        return {"timing": None, "package": None}
 
 def _build_history_messages(chat_history: list = None):
     """
@@ -98,7 +135,7 @@ def _is_transactional_input(text: str) -> bool:
         "yes", "yeah", "yep", "sure", "ok", "okay", "hi", "hii", "hello", "hey",
         "morning", "evening", "afternoon", "6-7am", "7-8am", "8-9am", "10-11am",
         "12-1pm", "4-5pm", "5-6pm", "6-7pm", "7-8pm", "1 month", "3 months", "6 months",
-        "1 year", "installed", "downloaded", "done","one month", "three months", "three" 
+        "1 year", "installed", "downloaded", "done","one month", "three months" 
     ]
     return txt in procedural_triggers
 
@@ -149,7 +186,7 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
         context = ""
 
         # Run vector database search if retriever is loaded and query is not transactional
-        if retriever is not None and not _is_transactional_input(question):
+        if retriever is not None:
             retrieval_query = _build_retrieval_query(question, chat_history)
             t_retrieve = time.perf_counter()
             try:
@@ -205,7 +242,7 @@ def stream_rag(question: str, chat_history: list = None, state: dict = None):
         sys_prompt_content = format_system_prompt(state or {"stage": "NEW"})
         context = ""
 
-        if retriever is not None and not _is_transactional_input(question):
+        if retriever is not None:
             retrieval_query = _build_retrieval_query(question, chat_history)
             docs = retriever.invoke(retrieval_query)
             context = "\n\n".join([doc.page_content for doc in docs])

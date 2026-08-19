@@ -311,7 +311,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         prev_stage = "NEW"
 
     t_slots = time.perf_counter()
-    state = extract_and_update_slots(phone, text)
+    state = await extract_and_update_slots(phone, text)
     is_q = is_user_asking_question(text)
     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
 

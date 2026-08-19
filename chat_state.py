@@ -8,7 +8,8 @@ import os
 import re
 from dotenv import load_dotenv
 from supabase import create_client
-
+from rag import extract_slot_llm
+import asyncio
 # Load environment variables (.env file)
 load_dotenv()
 
@@ -262,6 +263,7 @@ def is_user_asking_question(text: str) -> bool:
         
     return False
 
+VALID_PACKAGES = {"1 Month": "₹700", "3 Months": "₹1,750", "6 Months": "₹3,200", "1 Year": "₹5,000"}
 
 
 GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
@@ -271,7 +273,7 @@ CONFIRMATION_WORDS = [
     "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
 ]
 
-def extract_and_update_slots(phone: str, text: str) -> dict:
+async def extract_and_update_slots(phone: str, text: str) -> dict:
     """
     Analyzes incoming user message, extracts batch timing or package selection,
     and updates funnel stage (NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED -> PACKAGE_ASKED -> READY_FOR_APP_LINK).
@@ -301,33 +303,43 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
             state["fee"] = None
 
     # --- 1. Detect Batch Timing Slot ---
+    timing_found = False
     if any(t in text_lower for t in ["5 6 pm", "5-6 pm", "5-6pm", "5 to 6", "5:00 pm", "5pm", "5 pm"]):
         state["timing"] = "5:00–6:00 PM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["6 7 pm", "6-7 pm", "6-7pm", "6 to 7 pm", "6:00 pm", "6pm", "6 pm"]):
         state["timing"] = "6:00–7:00 PM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["7 8 pm", "7-8 pm", "7-8pm", "7 to 8 pm", "7:00 pm", "7pm", "7 pm"]):
         state["timing"] = "7:00–8:00 PM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["4 5 pm", "4-5 pm", "4-5pm", "4 to 5", "4:00 pm", "4pm", "4 pm"]):
         state["timing"] = "4:00–5:00 PM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["12 1 pm", "12-1 pm", "12-1pm", "12 to 1", "12:00", "12pm", "12 pm"]):
         state["timing"] = "12:00–1:00 PM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["6 7 am", "6-7 am", "6-7am", "6 to 7 am", "6:00 am", "6am", "6 am"]):
         state["timing"] = "6:00–7:00 AM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["7 8 am", "7-8 am", "7-8am", "7 to 8 am", "7:00 am", "7am", "7 am"]):
         state["timing"] = "7:00–8:00 AM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["8 9 am", "8-9 am", "8-9am", "8 to 9 am", "8:00 am", "8am", "8 am"]):
         state["timing"] = "8:00–9:00 AM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
     elif any(t in text_lower for t in ["10 11 am", "10-11 am", "10-11am", "10 to 11", "10:00 am", "10am", "10 am"]):
         state["timing"] = "10:00–11:00 AM"
         state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        timing_found = True
 
     # --- 2. Detect Package / Duration Slot ---
     # We allow package detection at any stage if the text contains clear indicators,
@@ -352,6 +364,21 @@ def extract_and_update_slots(phone: str, text: str) -> dict:
         state["fee"] = "₹5,000"
         is_package_detected = True
 
+    needs_llm_fallback = (
+        not timing_found and not is_package_detected
+        and not is_greeting
+        and len(text_lower) >= 1
+        and state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED", "ENROLL_CONFIRMED"]
+    )
+    if needs_llm_fallback:
+        slot_result = await extract_slot_llm(text)
+        if slot_result["timing"] and not state.get("timing"):
+            state["timing"] = slot_result["timing"]
+            state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+        if slot_result["package"] and not state.get("package"):
+            state["package"] = slot_result["package"]
+            state["fee"] = VALID_PACKAGES[slot_result["package"]]
+        
     # Update funnel stage dynamically based on timing and package availability
     if state.get("timing") and state.get("package"):
         state["stage"] = advance_stage(state["stage"], "READY_FOR_APP_LINK")
