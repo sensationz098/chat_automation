@@ -303,7 +303,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    # Fetch previous state stage before slot extraction
+    # Fetch previous state stage before slot extraction ok
     try:
         pre_state = get_user_state(phone)
         prev_stage = pre_state.get("stage") or "NEW"
