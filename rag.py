@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 # IMPORTANT: load_dotenv MUST be called before any client initialization
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+# from langchain_google_genai import ChatGoogleGenerativeAI
 from qdrant_client import QdrantClient
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
