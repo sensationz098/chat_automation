@@ -81,6 +81,12 @@ INFO_INTENT_KEYWORDS = [
     "recording", "record", "leave", "cancel", "refund", "no refund",
     "minimum age", "8 year", "batao", "guide"
 ]
+
+AGENT_SUGGEST_PATTERN = re.compile(
+    r"to know more about this,?\s*you can type\s*\*?agent\*?\s*so our support team can assist you shortly\.?",
+    re.IGNORECASE
+)
+
 # ---------------------------------------------------------------------------
 # Round-robin agent selection (Redis INCR — atomic, multi-process safe)
 # ---------------------------------------------------------------------------
@@ -253,10 +259,7 @@ def should_skip_followup(full_reply: str, stage: str) -> bool:
             return True
     return False
 
-AGENT_SUGGEST_PATTERN = re.compile(
-    r"to know more about this,?\s*you can type\s*\*?agent\*?\s*so our support team can assist you shortly\.?",
-    re.IGNORECASE
-)
+
 
 def get_flow_followup(state: dict) -> str:
     # 1. If enrollment completed (coupon sent or profile completed)
@@ -477,6 +480,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 # ---------------------------------------------------------------------------
 # Main processing pipeline (NO per-phone Redis lock — debouncer handles it)
 # ---------------------------------------------------------------------------
+
 async def process_incoming_message_async(phone: str, text: str, referral: dict = None):
     """
     Fully async message processing pipeline.
@@ -548,3 +552,5 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
     await handle_ai_reply_async(phone, text, history, start_time)
 
     print(f"[TIMING] {phone} PIPELINE TOTAL: {time.perf_counter() - t0:.2f}s")
+
+

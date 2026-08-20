@@ -30,7 +30,7 @@ try:
     )
 
     embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-small",
+        model="text-embedding-3-large",
         api_key=os.getenv("OPENAI_API_KEY")
     )
 
@@ -49,7 +49,7 @@ except Exception as e:
 
 # --- LLM Model ---
 llm = ChatOpenAI(
-    model="gpt-4.1-nano",
+    model="gpt-5.6-luna",
     api_key=os.getenv("OPENAI_API_KEY"),
     temperature=0,
     timeout=30,
