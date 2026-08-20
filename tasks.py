@@ -297,14 +297,20 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     t0 = time.perf_counter()
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        # reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
-        # "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
-        # "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
-        reply =stream_rag("Hello! Welcome to Sensationz 😊 We offer yoga classes across morning, afternoon, and evening schedules. Please let us know which time of day you would prefer, or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine.")
-        await send_text_message_async(phone, reply)
+        msg1 = "Welcome to Sensationz 😊"
+        msg2 = "We offer yoga classes across morning, afternoon, and evening schedules."
+        msg3 = "Please let us know which time of day you would prefer, or if you have any specific questions about our yoga courses. We'll be happy to guide you and help you choose the schedule that best suits your routine."
+
+        await send_text_message_async(phone, msg1)
+        await asyncio.sleep(1)
+        await send_text_message_async(phone, msg2)
+        await asyncio.sleep(1)
+        await send_text_message_async(phone, msg3)
+
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        full_welcome = f"{msg1}\n{msg2}\n{msg3}"
+        save_message(phone, "assistant", full_welcome, response_time_sec=latency_sec)
+        log_message(phone, "ai", full_welcome)
         return
 
     # Fetch previous state stage before slot extraction ok ok
