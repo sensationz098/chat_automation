@@ -11,7 +11,7 @@ import time
 import asyncio
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
-
+from rag import stream_rag
 from interakt import (
     send_text_message_async,
     assign_chat_to_agent_async,
@@ -162,7 +162,9 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         return {"status": "handed off"}
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        reply = "Hello! Welcome to Sensationz"
+        reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
+        "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
+        "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
         await send_text_message_async(phone, reply)
         save_message(phone, "assistant", reply)
         return {"status": "offer sent"}
