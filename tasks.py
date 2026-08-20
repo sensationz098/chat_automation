@@ -30,7 +30,7 @@ from chat_state import (
     matches_any,
     advance_stage,
 )
-from rag import ask_rag_async
+from rag import ask_rag_async, stream_rag
 from redis_client import get_redis_connection
 import re
 
@@ -297,9 +297,10 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     t0 = time.perf_counter()
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
-        "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
-        "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
+        # reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
+        # "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
+        # "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
+        reply =stream_rag("Hello! Welcome to Sensationz 😊 We offer yoga classes across morning, afternoon, and evening schedules. Please let us know which time of day you would prefer, or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine.")
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
