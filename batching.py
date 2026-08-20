@@ -20,7 +20,7 @@ from tasks import process_incoming_message_async
 
 load_dotenv()
 
-BATCH_WAIT_SECONDS = 5  # Group fragments within 5 seconds debounce window
+BATCH_WAIT_SECONDS = 2  # Group fragments within 5 seconds debounce window
 
 redis_conn = get_redis_connection()
 _active_debounce_tasks = {}

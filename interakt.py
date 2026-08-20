@@ -50,38 +50,6 @@ def _split_phone(phone_with_country_code: str):
     return country_code, number
 
 
-def send_text_message(phone: str, message: str):
-    """
-    Synchronous text message sender (used from sync contexts).
-    phone: e.g. "917003705584" (country code + number, no '+').
-    """
-    country_code, number = _split_phone(phone)
-    payload = {
-        "countryCode": country_code,
-        "phoneNumber": number,
-        "type": "Text",
-        "data": {"message": message},
-    }
-    t0 = time.perf_counter()
-    try:
-        response = httpx.post(
-            f"{BASE_URL}/message/",
-            headers=_headers(),
-            json=payload,
-            timeout=10.0,
-        )
-        elapsed = time.perf_counter() - t0
-        print(f"[interakt] send_text_message: {response.status_code} ({elapsed:.2f}s)")
-        return response
-    except httpx.TimeoutException:
-        elapsed = time.perf_counter() - t0
-        print(f"[interakt] send_text_message TIMEOUT after {elapsed:.2f}s")
-        return None
-    except Exception as e:
-        elapsed = time.perf_counter() - t0
-        print(f"[interakt] send_text_message error ({elapsed:.2f}s): {e}")
-        return None
-
 
 async def send_text_message_async(phone: str, message: str):
     """
@@ -112,32 +80,6 @@ async def send_text_message_async(phone: str, message: str):
     except Exception as e:
         elapsed = time.perf_counter() - t0
         print(f"[interakt] send_text_message_async error ({elapsed:.2f}s): {e}")
-        return None
-
-
-def send_image_message(phone: str, media_url: str, caption: str = ""):
-    """Sends an image with an optional caption."""
-    country_code, number = _split_phone(phone)
-    payload = {
-        "countryCode": country_code,
-        "phoneNumber": number,
-        "type": "Image",
-        "data": {
-            "message": caption,
-            "mediaUrl": media_url,
-        },
-    }
-    try:
-        response = httpx.post(
-            f"{BASE_URL}/message/",
-            headers=_headers(),
-            json=payload,
-            timeout=10.0,
-        )
-        print(f"[interakt] send_image_message: {response.status_code}")
-        return response
-    except Exception as e:
-        print(f"[interakt] send_image_message error: {e}")
         return None
 
 
@@ -213,7 +155,6 @@ async def assign_chat_to_agent_async(phone: str, agent_email: str) -> bool:
         print(f"[interakt] assign_chat_to_agent_async error ({elapsed:.2f}s): {e}")
         return False
 
-
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     """Verifies Interakt webhook signature for security."""
     if not INTERAKT_WEBHOOK_SECRET:
@@ -222,3 +163,35 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
         INTERAKT_WEBHOOK_SECRET.encode(), payload, sha256
     ).hexdigest()
     return hmac.compare_digest(computed, signature)
+
+def send_text_message(phone: str, message: str):
+    """
+    Synchronous text message sender (used from sync contexts).
+    phone: e.g. "917003705584" (country code + number, no '+').
+    """
+    country_code, number = _split_phone(phone)
+    payload = {
+        "countryCode": country_code,
+        "phoneNumber": number,
+        "type": "Text",
+        "data": {"message": message},
+    }
+    t0 = time.perf_counter()
+    try:
+        response = httpx.post(
+            f"{BASE_URL}/message/",
+            headers=_headers(),
+            json=payload,
+            timeout=10.0,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message: {response.status_code} ({elapsed:.2f}s)")
+        return response
+    except httpx.TimeoutException:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message TIMEOUT after {elapsed:.2f}s")
+        return None
+    except Exception as e:
+        elapsed = time.perf_counter() - t0
+        print(f"[interakt] send_text_message error ({elapsed:.2f}s): {e}")
+        return None
