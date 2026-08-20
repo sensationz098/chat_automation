@@ -298,8 +298,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
         reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
-                "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
-                "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
+        "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
+        "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
