@@ -232,6 +232,7 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
 #     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
 #     log_message(phone, "ai", full_reply)
 
+
 def is_info_intent(text: str) -> bool:
     t = text.lower().strip()
     return any(kw in t for kw in INFO_INTENT_KEYWORDS)
@@ -265,7 +266,7 @@ def get_flow_followup(state: dict) -> str:
     # 2. If app links are sent or ready for app link
     if state.get("stage") in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
         return (
-            "\n\nWonderful! 😊 To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
+            "\n\nTo proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
             "Please download the app here:\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
             "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
@@ -275,7 +276,7 @@ def get_flow_followup(state: dict) -> str:
     # 3. If timing is selected but package is missing
     if state.get("timing") and not state.get("package"):
         return (
-            "\n\nWonderful! 😊 Which package duration would you like to start with?\n"
+            "\n\nWhich package duration would you like to start with?\n"
             "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
         )
         
@@ -284,7 +285,7 @@ def get_flow_followup(state: dict) -> str:
         if state.get("stage") == "NEW":
             return None
         return (
-            "\n\nWonderful! 😊 Which timing would you prefer for your classes?\n"
+            "\n\nWhich timing would you prefer for your classes?\n"
             "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
             "Afternoon: 12:00–1:00 PM\n"
             "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
@@ -296,7 +297,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     t0 = time.perf_counter()
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        reply = "Hi Sir/Mam, Welcome to Sensationz Media and arts, How i can help u?"
+        reply = "Hello! Welcome to Sensationz"
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
@@ -354,7 +355,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     if not is_q and not is_info_intent(text) and state["stage"] == "TIMING_SELECTED" and not state.get("package") and (is_fresh_timing_selected or is_confirmation or is_greeting):
         reply = (
-            f"Wonderful! 😊 you've selected the {state.get('timing')} batch.\n\n"
+            f"You've selected the {state.get('timing')} batch.\n\n"
             "Would you like to go ahead and pick a package duration too? 😊\n"
             "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
         )
@@ -368,7 +369,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing") and (is_fresh_package_selected or is_confirmation or is_greeting):
         reply = (
-            f"Wonderful! 😊 you've selected the {state.get('package')} package.\n\n"
+            f"You've selected the {state.get('package')} package.\n\n"
             "Which timing would you prefer for your classes? 😊\n"
             "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
             "Afternoon: 12:00–1:00 PM\n"
@@ -387,7 +388,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750"
         reply = (
-            f"Wonderful! 😊 you've selected the {package} package for {fee}.\n\n"
+            f"You've selected the {package} package for {fee}.\n\n"
             "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
             "Please download the app here:\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"

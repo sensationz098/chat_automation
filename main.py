@@ -162,7 +162,7 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         return {"status": "handed off"}
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        reply = "Hi Sir/Mam, Welcome to Sensationz Media and arts, How i can help u?"
+        reply = "Hello! Welcome to Sensationz"
         await send_text_message_async(phone, reply)
         save_message(phone, "assistant", reply)
         return {"status": "offer sent"}

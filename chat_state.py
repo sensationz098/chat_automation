@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 from rag import extract_slot_llm
 import asyncio
+from rapidfuzz import fuzz
 # Load environment variables (.env file)
 load_dotenv()
 
@@ -29,7 +30,7 @@ import threading
 _memory_lock = threading.Lock()
 _memory_sessions: dict[str, dict] = {}
 
-from rapidfuzz import fuzz
+
 
 def matches_any(text: str, words: list[str]) -> bool:
     t = text.lower().strip()
