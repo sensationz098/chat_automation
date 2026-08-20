@@ -274,7 +274,7 @@ CONFIRMATION_WORDS = [
     "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
 ]
 
-async def extract_and_update_slots(phone: str, text: str) -> dict:
+async def extract_and_update_slots(phone: str, text: str, chat_history: list = None) -> dict:
     """
     Analyzes incoming user message, extracts batch timing or package selection,
     and updates funnel stage (NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED -> PACKAGE_ASKED -> READY_FOR_APP_LINK).
@@ -302,6 +302,31 @@ async def extract_and_update_slots(phone: str, text: str) -> dict:
             state["timing"] = None
             state["package"] = None
             state["fee"] = None
+
+    # --- 0.5 Detect Intent to Change / Remove Slots ---
+    change_kws = ["change", "remove", "galat", "wrong", "dusra", "delete", "nahi chahiye", "cancel"]
+    if any(kw in text_lower for kw in change_kws) and state["stage"] not in ["NEW", "PROFILE_COMPLETED", "COUPON_SENT"]:
+        changed = False
+        if any(w in text_lower for w in ["timing", "time", "batch", "slot", "baje"]):
+            state["timing"] = None
+            if state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED", "READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+                state["stage"] = "ENROLL_CONFIRMED"
+            changed = True
+        
+        if any(w in text_lower for w in ["package", "plan", "duration", "month", "months", "year", "mahina"]):
+            state["package"] = None
+            state["fee"] = None
+            if state["stage"] in ["PACKAGE_SELECTED", "READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+                state["stage"] = "TIMING_SELECTED"
+            changed = True
+            
+        if not changed and ("remove it" in text_lower or "change it" in text_lower or "change" in text_lower):
+            # General fallback if ambiguous
+            state["timing"] = None
+            state["package"] = None
+            state["fee"] = None
+            if state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED", "READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+                state["stage"] = "ENROLL_CONFIRMED"
 
     # --- 1. Detect Batch Timing Slot ---
     timing_found = False
@@ -372,7 +397,7 @@ async def extract_and_update_slots(phone: str, text: str) -> dict:
         and state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED", "ENROLL_CONFIRMED"]
     )
     if needs_llm_fallback:
-        slot_result = await extract_slot_llm(text)
+        slot_result = await extract_slot_llm(text, chat_history)
         if slot_result["timing"] and not state.get("timing"):
             state["timing"] = slot_result["timing"]
             state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")

@@ -51,6 +51,7 @@ When something cannot be confirmed, say so naturally and end with exactly:
 ## NATURAL REPLY — NO MESSAGE REPETITION
 ## OUTPUT — STRICT
 - Never repeat or restate the user's words, even when they contain typos. Never write "Aapka message...", "Aapka question...", "Aapne poocha...", "You asked...", or explain the user's request. Understand the message internally and reply directly with the answer only.
+- SILENT TYPO HANDLING: If the user makes a typo (e.g. "wait" instead of "weight"), understand the intent silently. NEVER point out, quote, or explain the typo to the customer. Just answer the underlying intent naturally.
 - NEVER invent, assume, estimate, or guess any timing, fee, package, teacher, class, service, policy, feature, or other Sensationz information.
 - Use ONLY information explicitly available in the allowed knowledge context, system instructions, or current session state.
 - If the requested information is not confirmed, say naturally that you don't have confirmed information about it.
@@ -193,15 +194,13 @@ Do not trigger or restart enrollment based on an unclear message.
 
 Normally, answer the customer's question and stop.
 
-Do not add unnecessary follow-up questions such as:
+If the customer is IN THE MIDDLE OF ENROLLMENT (Funnel Stage is NOT PROFILE_COMPLETED or COUPON_SENT), DO NOT add unnecessary follow-up questions such as:
+"Would you like to know timings?"
+"Would you like to enroll?"
+"Do you want to proceed?"
+"Let me know your preferred timing."
 
-"Would you like..."
-"Do you want..."
-"Let me know..."
-"Can I help..."
-"Please let me know..."
-
-Exception: a question is allowed when it is necessary to complete an active enrollment step or clarify an ambiguous message.
+EXCEPTION: If the enrollment is ALREADY COMPLETE (Stage is PROFILE_COMPLETED or COUPON_SENT), you MAY ask general polite follow-up questions (e.g. "Is there anything else I can help you with?").
 
 12. RESPONSE STYLE
 Keep answers concise and WhatsApp-friendly.
@@ -210,6 +209,8 @@ Never repeat the same information unnecessarily.
 Never contradict confirmed session state.
 Never hallucinate business information.
 When uncertain, do not guess; use the required agent sentence from Section 2.
+
+13. Never Mention user prompt again
 """
 
 
@@ -227,8 +228,8 @@ def format_system_prompt(state: dict) -> str:
     profile_str = "CONFIRMED" if state.get("profile_created") else "PENDING"
 
     state_context = (
-        f"- Batch Timing: {timing_str}\n"
-        f"- Package Duration: {package_str}\n"
+        f"- Customer's Selected Batch Timing: {timing_str}\n"
+        f"- Customer's Selected Package Duration: {package_str}\n"
         f"- Package Fee: {fee_str}\n"
         f"- Funnel Stage: {stage_str}\n"
         f"- App Installed: {app_str}\n"

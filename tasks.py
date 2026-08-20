@@ -312,7 +312,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         prev_stage = "NEW"
 
     t_slots = time.perf_counter()
-    state = await extract_and_update_slots(phone, text)
+    state = await extract_and_update_slots(phone, text, history)
     is_q = is_user_asking_question(text)
     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
 
@@ -439,10 +439,18 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
         state["low_confidence_count"] = 0  # reset after nudging, don't nag every message after
     else:
-        # Always steer back to the flow if enrollment isn't complete yet. Deterministic, not LLM.
         followup = get_flow_followup(state)
-        if followup and not should_skip_followup(full_reply, state.get("stage")):
-            full_reply += followup
+        if followup:
+            # Strip trailing LLM-generated questions if we are about to append our own deterministic one
+            full_reply = re.sub(r"(?i)\n*would you like to.*?\?", "", full_reply)
+            full_reply = re.sub(r"(?i)\n*do you want to.*?\?", "", full_reply)
+            full_reply = re.sub(r"(?i)\n*please tell me your preferred.*?(?:\?|\.|!)", "", full_reply)
+            full_reply = re.sub(r"(?i)\n*which (timing|package).*?\?", "", full_reply)
+            full_reply = re.sub(r"(?i)\n*are you looking to enroll.*?\?", "", full_reply)
+            full_reply = full_reply.strip()
+
+            if not should_skip_followup(full_reply, state.get("stage")):
+                full_reply += followup
 
     # Post-LLM State Transitions
     if state.get("stage") == "READY_FOR_APP_LINK":

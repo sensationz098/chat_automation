@@ -63,7 +63,7 @@ VALID_TIMINGS = [
 ]   
 VALID_PACKAGES = {"1 Month": "₹700", "3 Months": "₹1,750", "6 Months": "₹3,200", "1 Year": "₹5,000"}
 
-async def extract_slot_llm(text: str) -> dict:
+async def extract_slot_llm(text: str, chat_history: list = None) -> dict:
     """
     Determines if the user's message clearly selects a batch timing and/or
     package duration, even with non-exact phrasing ("teen mahine", "quarterly",
@@ -80,8 +80,22 @@ async def extract_slot_llm(text: str) -> dict:
         "NEVER guess a value the user did not clearly indicate.\n"
         'Respond ONLY with strict JSON: {"timing": "<value or null>", "package": "<value or null>"}'
     ))
+    
+    last_ai_message = ""
+    if chat_history:
+        for turn in reversed(chat_history):
+            if turn.get("role") == "assistant":
+                last_ai_message = turn.get("content", "")
+                break
+
+    user_msg = (
+        f"AI's Last Message: \"{last_ai_message}\"\n"
+        f"Customer's Current Reply: \"{text}\"\n\n"
+        "Extract the slot values from the customer's reply, interpreting it strictly in the context of what the AI just asked."
+    )
+
     try:
-        resp = await llm.ainvoke([sys_msg, HumanMessage(content=text)])
+        resp = await llm.ainvoke([sys_msg, HumanMessage(content=user_msg)])
         raw = resp.content.strip().strip("`").replace("json\n", "").strip()
         data = json.loads(raw)
         timing = data.get("timing")
@@ -202,14 +216,25 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
         messages = [SystemMessage(content=sys_prompt_content)]
         messages.extend(_build_history_messages(chat_history))
 
+        # Extract the last AI message for immediate context pairing
+        last_ai_message = ""
+        if chat_history:
+            for turn in reversed(chat_history):
+                if turn.get("role") == "assistant":
+                    last_ai_message = turn.get("content", "")
+                    break
+
         user_msg = (
             f"Context:\n{context}\n\n"
-            f"Customer's message: {question}\n\n"
-            "INSTRUCTION FOR MULTI-QUESTION INPUTS:\n"
-            "1. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
-            "2. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
-            "3. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
-            "4. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
+            f"--- IMMEDIATE CONTEXT ---\n"
+            f"AI's Last Message: \"{last_ai_message}\"\n"
+            f"Customer's Current Reply: \"{question}\"\n\n"
+            "INSTRUCTION:\n"
+            "1. Analyze the customer's reply specifically as an answer to the AI's last message.\n"
+            "2. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
+            "3. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
+            "4. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
+            "5. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
         )
         messages.append(HumanMessage(content=user_msg))
 
@@ -250,14 +275,24 @@ def stream_rag(question: str, chat_history: list = None, state: dict = None):
         messages = [SystemMessage(content=sys_prompt_content)]
         messages.extend(_build_history_messages(chat_history))
 
+        last_ai_message = ""
+        if chat_history:
+            for turn in reversed(chat_history):
+                if turn.get("role") == "assistant":
+                    last_ai_message = turn.get("content", "")
+                    break
+
         user_msg = (
             f"Context:\n{context}\n\n"
-            f"Customer's message: {question}\n\n"
-            "INSTRUCTION FOR MULTI-QUESTION INPUTS:\n"
-            "1. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
-            "2. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
-            "3. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
-            "4. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
+            f"--- IMMEDIATE CONTEXT ---\n"
+            f"AI's Last Message: \"{last_ai_message}\"\n"
+            f"Customer's Current Reply: \"{question}\"\n\n"
+            "INSTRUCTION:\n"
+            "1. Analyze the customer's reply specifically as an answer to the AI's last message.\n"
+            "2. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
+            "3. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
+            "4. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
+            "5. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
         )
         messages.append(HumanMessage(content=user_msg))
 
