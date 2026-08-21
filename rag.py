@@ -309,3 +309,5 @@ def stream_rag(question: str, chat_history: list = None, state: dict = None):
             return
         print(f"[rag.py] stream_rag error: {e}")
         yield "Sorry, I'm unable to answer your question right now."
+
+
