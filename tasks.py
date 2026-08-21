@@ -18,7 +18,7 @@ from interakt import (
     send_text_message_async,
     assign_chat_to_agent_async,
 )
-from chat_state import reset_followup_timer
+from chat_state import reset_follow_up_timer
 from chat_state import arm_followup_timer
 from chat_history import save_message, get_recent_history
 from csv_logger import log_message
