@@ -214,7 +214,8 @@ def save_user_state(phone: str, state: dict):
             SUPABASE_STATE_COLUMNS = {
                 "phone", "stage", "timing", "package", "fee", "app_installed",
                 "profile_created", "coupon_sent", "is_escalated", "is_target_ad",
-                "low_confidence_count", "already_assigned"
+                "low_confidence_count", "already_assigned",
+                "follow_up_count", "next_followup_due_at", "last_topic"
             }
             db_state = {k: v for k, v in state.items() if k in SUPABASE_STATE_COLUMNS}
             supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()

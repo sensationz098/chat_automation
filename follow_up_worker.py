@@ -40,7 +40,7 @@ def get_next_agent_email() -> str:
 
 async def sweep_once():
     now = time.time()
-
+    print(f"[followup_worker] Sweep started at {time.strftime('%H:%M:%S')}")
     try:
         result = (
             supabase.table("user_session_state")
@@ -53,6 +53,7 @@ async def sweep_once():
     except Exception as e:
         print(f"[followup_worker] Query failed: {e}")
         return
+    print(f"[followup_worker] Fetched {len(result.data)} user(s) due for follow-up")
 
     for row in result.data:
         phone = row["phone"]
@@ -105,14 +106,20 @@ async def sweep_once():
                 lock.release()
             except Exception:
                 pass
+    print(f"[followup_worker] Sweep finished at {time.strftime('%H:%M:%S')}")
 
 
-# async def main_loop():
-#     print(f"[followup_worker] Started — polling every {POLL_INTERVAL}s")
-#     while True:
-#         await sweep_once()
-#         await asyncio.sleep(POLL_INTERVAL)
+async def main_loop():
+    print(f"[followup_worker] Started — polling every {POLL_INTERVAL}s")
+    cycle = 0
+    while True:
+        cycle += 1
+        print(f"\n[followup_worker] --- Cycle #{cycle} ---")
+        await sweep_once()
+        print(f"[followup_worker] Sleeping {POLL_INTERVAL}s until next cycle...\n")
+
+        await asyncio.sleep(POLL_INTERVAL)
 
 
-# if __name__ == "__main__":
-#     asyncio.run(main_loop())
+if __name__ == "__main__":
+    asyncio.run(main_loop())
