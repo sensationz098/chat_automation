@@ -298,7 +298,7 @@ def get_flow_followup(state: dict) -> str:
     return None
 
 
-from chat_state import arm_followup_timer, reset_followup_timer
+from chat_state import arm_followup_timer, reset_follow_up_timer
 
 async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
     t0 = time.perf_counter()
