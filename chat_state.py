@@ -63,6 +63,7 @@ def mark_escalated(phone: str):
     # Also update state in memory session cache
     state = get_user_state(phone)
     state["is_escalated"] = True
+    save_user_state(phone, state)
 
 def is_escalated(phone: str) -> bool:
     """
@@ -100,6 +101,7 @@ def clear_escalation(phone: str):
             print(f"[chat_state] clear_escalation DB error: {e}")
     state = get_user_state(phone)
     state["is_escalated"] = False
+    save_user_state(phone, state)
 
 
 import json
@@ -139,8 +141,9 @@ def reset_follow_up_timer(state: dict):
 
 def arm_followup_timer(state: dict, topic:str , delay_seconds:int = 300):
     """ Call when ever bot sends a reply - start/reset in 5 min"""
-    state["next_follow_up_due_at"]= time.time() + delay_seconds
+    state["next_followup_due_at"]= time.time() + delay_seconds
     state["last_topic"] = topic[:200]
+
 
 def get_user_state(phone: str) -> dict:
     """
@@ -218,7 +221,10 @@ def save_user_state(phone: str, state: dict):
                 "follow_up_count", "next_followup_due_at", "last_topic"
             }
             db_state = {k: v for k, v in state.items() if k in SUPABASE_STATE_COLUMNS}
-            supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()
+            print(f"[DEBUG-SAVE] {phone}: db_state={db_state}")  # <-- ADD THIS
+
+            result = supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()
+            print(f"[DEBUG-SAVE] {phone}: upsert result={result}") 
         except Exception as e:
             print(f"[chat_state] Supabase save_user_state failed: {e}")
 
