@@ -8,16 +8,14 @@ The fallback path also uses fully async I/O.
 
 import os
 import time
-import asyncio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header, HTTPException
 from dotenv import load_dotenv
-from rag import stream_rag
 from interakt import (
     send_text_message_async,
     assign_chat_to_agent_async,
     verify_webhook_signature,
 )
-
+from follow_up_worker import sweep_once
 from csv_logger import log_message
 from chat_history import save_message, get_recent_history, get_full_history_for_agent
 from rag import ask_rag_async
@@ -27,7 +25,6 @@ from chat_state import (
     get_user_state,
     save_user_state,
     extract_and_update_slots,
-    is_user_asking_question,
     matches_any,
     advance_stage,
 )
@@ -40,7 +37,7 @@ app = FastAPI()
 
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
-
+FOLLOWUP_SECRET = os.getenv("FOLLOWUP_SECRET")  # set this yourself, any random string
 
 # ---------------------------------------------------------------------------
 # Helper: extract phone from webhook payload
@@ -54,6 +51,13 @@ def _extract_phone(customer: dict) -> str:
         return country_code + phone_num
     return phone_num or str(customer.get("channel_phone_number", ""))
 
+
+@app.post("/internal/followup-sweep")
+async def followup_sweep_endpoint(x_secret: str = Header(None)):
+    if x_secret != FOLLOWUP_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    await sweep_once()
+    return {"status": "swept"}
 
 # ---------------------------------------------------------------------------
 # Endpoints

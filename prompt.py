@@ -83,6 +83,8 @@ Customer: "No, 7 AM nahi, 6 AM."
 → Use 6 AM.
 
 
+
+
 4. ANSWER THE CURRENT MESSAGE FIRST
 
 Understand what the customer is asking now.

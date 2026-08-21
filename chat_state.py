@@ -125,9 +125,22 @@ def get_default_state(phone: str) -> dict:
         "coupon_sent": False,         # Boolean flag indicating if welcome coupon code was delivered
         "is_escalated": False,        # Escalation flag to hand off to human agent
         "is_target_ad": False,        # Whether user verified via secret string (AI enabled)
-        "low_confidence_count": 0     # Consecutive unanswered / low-confidence query count
+        "low_confidence_count": 0,     # Consecutive unanswered / low-confidence query count
+        "follow_up_count": 0,
+        "next_follow_up_due_at": 0,
+        "last_topic": 0    
     }
 
+
+def reset_follow_up_timer(state: dict):
+    """ Call whenever Customer sends message - we're no longer waiting on them"""
+    state["follow_up_count"] = 0
+    state["next_follow_up_due_at"] = None
+
+def arm_followup_timer(state: dict, topic:str , delay_seconds:int = 300):
+    """ Call when ever bot sends a reply - start/reset in 5 min"""
+    state["next_follow_up_due_at"]= time.time() + delay_seconds
+    state["last_topic"] = topic[:200]
 
 def get_user_state(phone: str) -> dict:
     """

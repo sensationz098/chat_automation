@@ -1,0 +1,118 @@
+"""
+followup_worker.py — standalone background process. Polls Supabase every
+30 seconds for customers who haven't replied within their follow-up window,
+sends a reminder (or escalates on the second miss), fully independent of
+the main webhook/queue pipeline since nothing "arrives" to trigger this.
+
+Deploy as its own Render Background Worker (separate from the message
+queue worker) with: python followup_worker.py
+"""
+
+import os
+import time
+import asyncio
+from dotenv import load_dotenv
+from supabase import create_client
+
+from interakt import send_text_message_async, assign_chat_to_agent_async
+from chat_state import mark_escalated
+from chat_history import save_message
+from csv_logger import log_message
+from redis_client import get_redis_connection
+
+load_dotenv()
+
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+redis_conn = get_redis_connection()
+
+POLL_INTERVAL = 30  # seconds between sweeps
+PRIORITY_AGENT_EMAIL_ANOTHER_1 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_1")
+PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
+AGENT_POOL = [e for e in [PRIORITY_AGENT_EMAIL_ANOTHER_1, PRIORITY_AGENT_EMAIL_ANOTHER_2] if e]
+
+
+def get_next_agent_email() -> str:
+    if not AGENT_POOL:
+        return os.getenv("PRIORITY_AGENT_EMAIL")
+    counter = redis_conn.incr("agent_round_robin_counter")
+    return AGENT_POOL[(counter - 1) % len(AGENT_POOL)]
+
+
+async def sweep_once():
+    now = time.time()
+
+    try:
+        result = (
+            supabase.table("user_session_state")
+            .select("phone, follow_up_count, next_followup_due_at, last_topic, is_escalated")
+            .lte("next_followup_due_at", now)
+            .lt("follow_up_count", 2)
+            .eq("is_escalated", False)
+            .execute()
+        )
+    except Exception as e:
+        print(f"[followup_worker] Query failed: {e}")
+        return
+
+    for row in result.data:
+        phone = row["phone"]
+        count = row.get("follow_up_count", 0)
+        topic = row.get("last_topic") or "your query"
+
+        # Per-phone lock so this sweeper never races the main message
+        # pipeline if the customer replies at the exact same moment.
+        lock = redis_conn.lock(f"phone-lock:{phone}", timeout=30, blocking_timeout=2)
+        if not lock.acquire(blocking=True):
+            continue
+
+        try:
+            if count == 0:
+                reply = (
+                    f"Hi again! 😊 Just checking in — were you still interested in "
+                    f"knowing more about {topic}? Happy to help whenever you're ready!"
+                )
+                await send_text_message_async(phone, reply)
+                save_message(phone, "assistant", reply)
+                log_message(phone, "ai", reply)
+
+                supabase.table("user_session_state").update({
+                    "follow_up_count": 1,
+                    "next_followup_due_at": now + 300,  # arm the 5-min window again
+                }).eq("phone", phone).execute()
+                print(f"[followup_worker] {phone}: sent 1st reminder")
+
+            elif count == 1:
+                agent = get_next_agent_email()
+                reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
+                if agent:
+                    await assign_chat_to_agent_async(phone, agent)
+                await send_text_message_async(phone, reply)
+                mark_escalated(phone)
+                save_message(phone, "assistant", reply)
+                log_message(phone, "agent", reply)
+
+                supabase.table("user_session_state").update({
+                    "follow_up_count": 2,
+                    "next_followup_due_at": None,
+                    "is_escalated": True,
+                }).eq("phone", phone).execute()
+                print(f"[followup_worker] {phone}: escalated after 2nd silence")
+
+        except Exception as e:
+            print(f"[followup_worker] Error processing {phone}: {e}")
+        finally:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
+# async def main_loop():
+#     print(f"[followup_worker] Started — polling every {POLL_INTERVAL}s")
+#     while True:
+#         await sweep_once()
+#         await asyncio.sleep(POLL_INTERVAL)
+
+
+# if __name__ == "__main__":
+#     asyncio.run(main_loop())

@@ -13,11 +13,13 @@ import os
 import time
 import asyncio
 from dotenv import load_dotenv
-
+from chat_state import reset_follow_up_timer
 from interakt import (
     send_text_message_async,
     assign_chat_to_agent_async,
 )
+from chat_state import reset_followup_timer
+from chat_state import arm_followup_timer
 from chat_history import save_message, get_recent_history
 from csv_logger import log_message
 from chat_state import (
@@ -296,6 +298,8 @@ def get_flow_followup(state: dict) -> str:
     return None
 
 
+from chat_state import arm_followup_timer, reset_followup_timer
+
 async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
     t0 = time.perf_counter()
 
@@ -309,6 +313,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await send_text_message_async(phone, msg2)
         await asyncio.sleep(1)
         await send_text_message_async(phone, msg3)
+
+        # Arm follow-up timer for this welcome message too
+        state = get_user_state(phone)
+        arm_followup_timer(state, topic="welcome message")
+        save_user_state(phone, state)
 
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         full_welcome = f"{msg1}\n{msg2}\n{msg3}"
@@ -349,6 +358,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         reply = get_flow_followup(state)
         if reply:
             reply = reply.strip()
+            arm_followup_timer(state, topic=text)
+            save_user_state(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
             save_message(phone, "assistant", reply, response_time_sec=latency_sec)
@@ -359,6 +370,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         reply = get_flow_followup(state)
         if reply:
             reply = reply.strip()
+            arm_followup_timer(state, topic=text)
+            save_user_state(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
             save_message(phone, "assistant", reply, response_time_sec=latency_sec)
@@ -372,6 +385,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
         )
         state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
+        arm_followup_timer(state, topic=text)
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -388,6 +402,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
         )
         state["stage"] = advance_stage(state["stage"], "ENROLL_CONFIRMED")
+        arm_followup_timer(state, topic=text)
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -408,6 +423,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             "Once you've downloaded the app and created your profile, let me know here so I can activate your welcome coupon!"
         )
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
+        arm_followup_timer(state, topic=text)
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -424,6 +440,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
         state["coupon_sent"] = True
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
+        # No follow-up timer here — flow is complete, don't nag after coupon.
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -468,6 +485,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     if state.get("stage") == "READY_FOR_APP_LINK":
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
 
+    # Only keep nudging the customer if the flow isn't finished yet
+    if state.get("stage") not in ["COUPON_SENT"]:
+        arm_followup_timer(state, topic=text)
     save_user_state(phone, state)
 
     t_send = time.perf_counter()
@@ -510,6 +530,8 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
     except Exception as e:
         print(f"[tasks] {phone}: Failed to save target flag: {e}")
         state ={}
+    reset_follow_up_timer(state)
+    save_user_state(phone, state)
     # 3. Fetch history
     t_hist = time.perf_counter()
     try:
