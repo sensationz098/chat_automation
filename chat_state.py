@@ -135,14 +135,15 @@ def get_default_state(phone: str) -> dict:
 
 
 def reset_follow_up_timer(state: dict):
-    """ Call whenever Customer sends message - we're no longer waiting on them"""
-    state["follow_up_count"] = 0
     state["next_follow_up_due_at"] = None
+    state["next_followup_due_at"] = None
+    state["follow_up_count"] = 0
 
 def arm_followup_timer(state: dict, topic:str , delay_seconds:int = 300):
     """ Call when ever bot sends a reply - start/reset in 5 min"""
-    state["next_followup_due_at"]= time.time() + delay_seconds
+    state["next_followup_due_at"] = time.time() + delay_seconds
     state["last_topic"] = topic[:200]
+    state["follow_up_count"] = 0
 
 
 def get_user_state(phone: str) -> dict:
@@ -305,6 +306,37 @@ def _detect_timing(text_lower: str) -> tuple:
     def has(*pats):
         return any(p in t for p in pats)
 
+    def re_has(pattern):
+        return bool(re.search(pattern, t))
+
+    # === Priority 0: Explicit check for UNAVAILABLE / UNSUPPORTED batch requests ===
+    # If user explicitly asks for batch ranges that do not exist (e.g. 11-12, 1-2, 2-3, 3-4, 8-9 PM, 9-10),
+    # return None so slot extraction NEVER locks it in, allowing RAG to explain it is unavailable.
+    unsupported_patterns = [
+        r"(?<![0-9])11\s*(?:to|-|se|\s)\s*12\b",
+        r"(?<![0-9])11\s*:\s*00\s*(?:to|-|se|\s)\s*12\s*:\s*00\b",
+        r"(?<![0-9])11se12",
+        r"(?<![0-9])11to12",
+        r"(?<![0-9])11-12",
+        r"(?<![0-9])1\s*(?:to|-|se|\s)\s*2\b",
+        r"(?<![0-9])2\s*(?:to|-|se|\s)\s*3\b",
+        r"(?<![0-9])3\s*(?:to|-|se|\s)\s*4\b",
+        r"(?<![0-9])8\s*(?:to|-|se|\s)\s*9\s*pm\b",
+        r"(?<![0-9])8\s*:\s*00\s*(?:to|-|se|\s)\s*9\s*:\s*00\s*pm\b",
+        r"(?<![0-9])8\s*9\s*pm\b",
+        r"(?<![0-9])8se9pm\b",
+        r"(?<![0-9])8to9pm\b",
+        r"(?<![0-9])8-9pm\b",
+        r"(?<![0-9])89pm\b",
+        r"(?<![0-9])9\s*(?:to|-|se|\s)\s*10\b",
+        r"(?<![0-9])9\s*:\s*00\s*(?:to|-|se|\s)\s*10\s*:\s*00\b",
+        r"(?<![0-9])9se10\b",
+        r"(?<![0-9])9to10\b",
+        r"(?<![0-9])9-10\b",
+    ]
+    if any(re_has(p) for p in unsupported_patterns):
+        return None, False, ""
+
     # === Priority 1: Explicit range WITH AM (covers 'X se Y am', 'XYam', 'X to Y am', 'X-Y am') ===
     if has("5 se 6 am", "5se6am", "5 to 6 am", "5to6am", "5-6 am", "5-6am", "5 6 am", "56am", "5:00 am", "subah 5", "5 baje subah"):
         return "5:00–6:00 AM", False, ""
@@ -329,24 +361,24 @@ def _detect_timing(text_lower: str) -> tuple:
     if has("7 se 8 pm", "7se8pm", "7 to 8 pm", "7to8pm", "7-8 pm", "7-8pm", "7 8 pm", "78pm", "7:00 pm", "shaam 7", "7 baje shaam", "evening 7"):
         return "7:00–8:00 PM", False, ""
 
-    # === Priority 3: Single time with explicit AM/PM (checked AFTER ranges to avoid false matches) ===
-    if has("6am", "6 am"):
+    # === Priority 3: Single time with explicit AM/PM (using word boundaries to prevent range collisions) ===
+    if re_has(r"(?<![0-9\-])\b6\s*am\b"):
         return "6:00–7:00 AM", False, ""
-    if has("7am", "7 am"):
+    if re_has(r"(?<![0-9\-])\b7\s*am\b"):
         return "7:00–8:00 AM", False, ""
-    if has("8am", "8 am"):
+    if re_has(r"(?<![0-9\-])\b8\s*am\b"):
         return "8:00–9:00 AM", False, ""
-    if has("10am", "10 am"):
+    if re_has(r"(?<![0-9\-])\b10\s*am\b"):
         return "10:00–11:00 AM", False, ""
-    if has("12pm", "12 pm"):
+    if re_has(r"(?<![0-9\-])\b12\s*pm\b"):
         return "12:00–1:00 PM", False, ""
-    if has("4pm", "4 pm"):
+    if re_has(r"(?<![0-9\-])\b4\s*pm\b"):
         return "4:00–5:00 PM", False, ""
-    if has("5pm", "5 pm"):
+    if re_has(r"(?<![0-9\-])\b5\s*pm\b"):
         return "5:00–6:00 PM", False, ""
-    if has("6pm", "6 pm"):
+    if re_has(r"(?<![0-9\-])\b6\s*pm\b"):
         return "6:00–7:00 PM", False, ""
-    if has("7pm", "7 pm"):
+    if re_has(r"(?<![0-9\-])\b7\s*pm\b"):
         return "7:00–8:00 PM", False, ""
 
     # === Priority 4: Unambiguous ranges WITHOUT AM/PM (only one slot exists for that pair) ===
@@ -358,7 +390,6 @@ def _detect_timing(text_lower: str) -> tuple:
         return "4:00–5:00 PM", False, ""
     if has("12 to 1", "12 se 1", "12-1", "12 baje", "dopahar"):
         return "12:00–1:00 PM", False, ""
-    # 5-6 without AM/PM → default to PM since 5 AM not offered to users
     if has("5 to 6", "5 se 6"):
         return "5:00–6:00 PM", False, ""
 
@@ -378,6 +409,8 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     """
     # Retrieve current session state for this phone number
     state = get_user_state(phone)
+    # Reset follow-up counter whenever customer is actively chatting
+    state["follow_up_count"] = 0
     text_lower = text.lower().strip()
     is_q = is_user_asking_question(text)
 

@@ -51,7 +51,7 @@ except Exception as e:
 llm = ChatOpenAI(
     model="gpt-5.6-luna",
     api_key=os.getenv("OPENAI_API_KEY"),
-    temperature=0,
+    temperature=0.3,
     timeout=30,
     max_retries=2,
 )

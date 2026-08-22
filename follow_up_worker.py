@@ -70,7 +70,7 @@ async def sweep_once():
             if count == 0:
                 reply = (
                     f"Hi again! 😊 Just checking in — were you still interested in "
-                    f"knowing more about {topic}? Happy to help whenever you're ready!"
+                    f"knowing more about Yoga? Happy to help whenever you're ready!"
                 )
                 await send_text_message_async(phone, reply)
                 save_message(phone, "assistant", reply)
@@ -84,7 +84,7 @@ async def sweep_once():
 
             elif count == 1:
                 agent = get_next_agent_email()
-                reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
+                reply = "Connecting you with our team now. Someone will be with you shortly!"
                 if agent:
                     await assign_chat_to_agent_async(phone, agent)
                 await send_text_message_async(phone, reply)

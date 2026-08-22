@@ -34,6 +34,7 @@ from chat_state import (
 )
 from rag import ask_rag_async, stream_rag
 from redis_client import get_redis_connection
+from sales_followup import get_sales_followup
 import re
 
 load_dotenv()
@@ -96,6 +97,52 @@ def _format_for_whatsapp(text: str) -> str:
 
 
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
+
+# ── Disinterest keywords (same list as in should_skip_followup) ───────────────
+_DISINTEREST_KWS = [
+    "not interested", "no thanks", "nahi chahiye", "nhi chahiye", "nahi lena",
+    "nhi lena", "interested nahi", "interested nhi", "abhi nahi", "abhi nhi",
+    "mat bhejo", "mat send", "baad mein", "baad mai", "later", "not now",
+    "dont want", "don't want", "nahi karna", "nhi karna", "no need",
+    "zaroorat nahi", "zaroorat nhi", "nahi chahte", "nhi chahte",
+    "nahi join", "nhi join", "join nahi", "join nhi",
+    "not for me", "nahi lete", "nhi lete",
+    # Common typos / alternate spellings
+    "not intersted", "not intrested", "not intrestad",
+    "nai chahiye", "ni chahiye", "no interest",
+]
+
+def is_disinterest_signal(text: str) -> bool:
+    """Returns True if the user message is a clear disinterest / refusal signal."""
+    t = text.lower().strip()
+    return any(kw in t for kw in _DISINTEREST_KWS)
+
+
+def _feedback_request_msg(user_text: str) -> str:
+    """
+    Returns a gentle, language-aware message asking WHY the user is not interested.
+    Never pressures — just invites them to share their concern.
+    """
+    hindi_markers = ["kya", "hai", "mujhe", "batao", "chahiye", "ka", "ki", "ke", "nahi", "nhi",
+                     "haan", "aur", "se", "bhi", "abhi", "mat", "nhi"]
+    has_devanagari = any("\u0900" <= ch <= "\u097F" for ch in user_text)
+    has_hindi_word = any(w in user_text.lower().split() for w in hindi_markers)
+
+    if has_devanagari or has_hindi_word:
+        return (
+            "Bilkul theek hai, koi problem nahi! 😊\n\n"
+            "Agar aap humse share kar sakein — kya cheez rok rahi hai aapko? "
+            "Timing? Fees? Ya kuch aur concern hai? "
+            "Hum apni best koshish karenge, agar kuch resolve ho sake toh. "
+            "Warna koi pressure nahi — jab mann kare, tab baat karte hain. 🙏"
+        )
+    return (
+        "No problem at all! 😊\n\n"
+        "If you don't mind sharing — what's holding you back? "
+        "Is it the timing, the fees, or something else? "
+        "We'll do our best to help if we can. "
+        "Either way, no pressure — we're here whenever you're ready. 🙏"
+    )
 
 INFO_INTENT_KEYWORDS = [
     # Section 20 mapping
@@ -206,7 +253,7 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
 async def handle_agent_handoff_async(phone: str, start_time: float = None):
     """Handles customer request to talk to a human — fully async."""
     print(f"[tasks] Agent requested by {phone}")
-    reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
+    reply = "Connecting you with our team now. Someone will be with you shortly!"
 
     agent = get_next_agent_email()
     if agent:
@@ -291,20 +338,77 @@ def is_info_intent(text: str) -> bool:
     t = text.lower().strip()
     return any(kw in t for kw in INFO_INTENT_KEYWORDS)
 
-def should_skip_followup(full_reply: str, stage: str) -> bool:
-    reply_lower = full_reply.lower()
+def should_skip_followup(user_text: str, full_reply: str, stage: str) -> bool:
+    """
+    Universal suppressor for stage follow-ups (e.g. package choice / timing choice prompts).
+    Returns True if a follow-up prompt should be SUPPRESSED (not sent).
+    """
+    u_lower = (user_text or "").lower().strip()
+    r_lower = (full_reply or "").lower().strip()
+
+    # 1. Medical & Sensitive Health Conditions (Never push sales on medical queries)
+    medical_kws = [
+        "cancer", "heart", "cardiac", "surgery", "doctor", "medical", "treatment",
+        "disease", "illness", "bp", "blood pressure", "diabetes", "sugar",
+        "spine", "spinal", "slip disc", "slipped disc", "injury", "fracture",
+        "pregnant", "pregnancy", "prenatal", "postnatal", "garbhasanskar",
+        "operation", "paralysis", "stroke", "kidney", "liver", "asthma",
+        "arthritis", "tumour", "tumor", "chemo", "chemotherapy", "patient",
+        "dawa", "dawain", "hospital", "bimari", "bimar"
+    ]
+    if any(kw in u_lower for kw in medical_kws) or any(kw in r_lower for kw in medical_kws):
+        return True
+
+    # 2. Unoffered / Unlisted Services & Negative Inquiries
+    unoffered_kws = [
+        "prenatal", "postnatal", "kids yoga", "face yoga", "offline", "studio",
+        "1-on-1", "1 on 1", "one on one", "private class", "personal trainer",
+        "home tutor", "personal class"
+    ]
+    if any(kw in u_lower for kw in unoffered_kws):
+        return True
+
+    # If the AI reply explicitly explains that something is unavailable/unoffered
+    negative_phrases = [
+        "available nahi", "not available", "offer nahi", "not offered",
+        "nahi sikhate", "nahi karwate", "don't offer", "do not offer",
+        "nahi hoti", "nahi hota", "currently not available", "currently available nahi"
+    ]
+    if any(p in r_lower for p in negative_phrases):
+        return True
+
+    # 3. Trial / Demo / Trust / Location inquiries (User asked to explore first)
+    explore_kws = [
+        "trial", "demo", "sample", "review", "reviews", "rating", "testimonial",
+        "location", "address", "branch", "fraud", "fake", "trust", "legit",
+        "website", "instagram", "facebook", "youtube"
+    ]
+    if any(kw in u_lower for kw in explore_kws):
+        return True
+
+    # 4. Support, Agent, Refund, Cancellation
+    support_kws = ["agent", "human", "refund", "cancel", "complaint", "support", "call", "baat karni", "talk to"]
+    if any(kw in u_lower for kw in support_kws) or any(kw in r_lower for kw in support_kws):
+        return True
+
+    # 5. Disinterest / Negative Intent — NEVER push sales after a clear refusal
+    if is_disinterest_signal(user_text):
+        return True
+
+    # 6. Question already addressed in full_reply according to current stage
     if stage in ["ENROLL_CONFIRMED", "PACKAGE_SELECTED"]:
-        timing_kws = ["timing", "batch", "time slot", "schedule", "time", "samay", "kab"]
-        if any(kw in reply_lower for kw in timing_kws):
+        timing_kws = ["timing", "batch", "time slot", "schedule", "samay", "kab"]
+        if any(kw in r_lower for kw in timing_kws):
             return True
     elif stage in ["TIMING_SELECTED", "PACKAGE_ASKED"]:
-        pkg_kws = ["package", "duration", "month", "months", "year", "fee", "fees", "price", "cost", "mahina"]
-        if any(kw in reply_lower for kw in pkg_kws):
+        pkg_kws = ["package", "duration", "month", "months", "year", "fee", "fees", "price", "cost", "mahina", "₹", "rs"]
+        if any(kw in r_lower for kw in pkg_kws):
             return True
     elif stage in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
-        app_kws = ["download", "install", "play store", "app store", "android", "ios", "app link", "profile"]
-        if any(kw in reply_lower for kw in app_kws) or "http" in reply_lower:
+        app_kws = ["download", "install", "play store", "app store", "android", "ios", "app link", "profile", "http"]
+        if any(kw in r_lower for kw in app_kws):
             return True
+
     return False
 
 
@@ -350,9 +454,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     t0 = time.perf_counter()
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        msg1 = "Welcome to Sensationz 😊"
-        msg2 = "We offer yoga classes across morning, afternoon, and evening schedules."
-        msg3 = "Please let us know which time of day you would prefer, or if you have any specific questions about our yoga courses. We'll be happy to guide you and help you choose the schedule that best suits your routine."
+        msg1 = "Welcome to Sensationz! 🙏 We're excited to help you start your wellness journey."
+        msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month, and full access to class recordings."
+        msg3 = "We have batches running throughout the day (Morning, Afternoon, and Evening). Which time slot works best for your schedule?"
 
         await send_text_message_async(phone, msg1)
         await asyncio.sleep(1)
@@ -404,16 +508,63 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
     CONFIRMATION_WORDS = [
         "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
-        "interested", "i want to join", "haan", "han",
+        # NOTE: 'interested' removed — it matches inside 'not interested'. Use full phrases instead:
+        "i am interested", "mujhe interested", "i want to join", "haan", "han",
         "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
     ]
     is_greeting = matches_any(text_lower, GREETING_WORDS)
-    is_confirmation = matches_any(text_lower, CONFIRMATION_WORDS)
+    # Disinterest takes priority — never let it be treated as confirmation
+    is_disinterest = is_disinterest_signal(text)
+    is_confirmation = (not is_disinterest) and matches_any(text_lower, CONFIRMATION_WORDS)
 
     is_fresh_enroll_confirmed = (prev_stage != "ENROLL_CONFIRMED" and state["stage"] == "ENROLL_CONFIRMED")
     is_fresh_package_asked = (prev_stage != "PACKAGE_ASKED" and state["stage"] == "PACKAGE_ASKED")
     is_fresh_timing_selected = (prev_stage != "TIMING_SELECTED" and state["stage"] == "TIMING_SELECTED")
     is_fresh_package_selected = (prev_stage != "PACKAGE_SELECTED" and state["stage"] == "PACKAGE_SELECTED")
+
+    # ── DISINTEREST CHECK ── Must run BEFORE any stage guard so it intercepts first.
+    # Handles: 'im not interested', 'not intersted' (typo), 'nahi chahiye', etc.
+    if is_disinterest and not state.get("disinterest_asked_feedback"):
+        state["disinterest_asked_feedback"] = True
+        arm_followup_timer(state, topic=text)
+        save_user_state(phone, state)
+        reply = _feedback_request_msg(text)
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
+    if state.get("disinterest_asked_feedback"):
+        state["disinterest_asked_feedback"] = False
+        save_user_state(phone, state)
+        if is_disinterest:
+            # User still not interested — graceful exit, no pressure
+            hindi_markers = ["nahi", "nhi", "mat", "abhi", "kya", "hai", "bhi", "se"]
+            has_devanagari = any("\u0900" <= ch <= "\u097F" for ch in text)
+            has_hindi_word = any(w in text_lower.split() for w in hindi_markers)
+            if has_devanagari or has_hindi_word:
+                reply = "Theek hai, samajh gaye! 🙏 Jab bhi mann kare, hum yahaan hain."
+            else:
+                reply = "Totally understood! 🙏 We're here whenever you're ready."
+            arm_followup_timer(state, topic=text)
+            save_user_state(phone, state)
+            await send_text_message_async(phone, reply)
+            latency_sec = round(time.time() - start_time, 2) if start_time else None
+            save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+            log_message(phone, "ai", reply)
+            return
+        # User shared their reason — fall through to RAG with gentle context hint
+        history = list(history) + [{
+            "role": "system",
+            "content": (
+                "The customer had previously expressed disinterest. They have now shared a reason. "
+                "Gently address their specific concern and show how Sensationz can help, "
+                "without being pushy. Do NOT force them. Keep it warm and helpful. "
+                "End with an open invitation, not a hard sell."
+            )
+        }]
+    # ── END DISINTEREST CHECK ──
 
     # --- DETERMINISTIC STAGE GUARDS ---
     if not is_q and not is_info_intent(text) and state["stage"] == "ENROLL_CONFIRMED" and (is_fresh_enroll_confirmed or is_confirmation or is_greeting):
@@ -510,6 +661,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
+
     # --- Genuine question / off-flow topic — goes to RAG ---
     t_rag = time.perf_counter()
     rag_result = await ask_rag_async(text, chat_history=history, state=state)
@@ -546,7 +698,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             full_reply = re.sub(r"(?i)\n*are you looking to enroll.*?\?", "", full_reply)
             full_reply = full_reply.strip()
 
-            if not should_skip_followup(full_reply, state.get("stage")):
+            if not should_skip_followup(text, full_reply, state.get("stage")):
                 # Issue 4: Two-message stream — answer first, stage question separately
                 followup_separate = followup.strip()
 
@@ -564,6 +716,16 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     if followup_separate:
         followup_separate = _format_for_whatsapp(followup_separate)
 
+    # Compute sales follow-up question (independent of stage follow-up)
+    # get_sales_followup() handles all suppression logic internally.
+    sales_followup_q = get_sales_followup(text, full_reply, state)
+    if followup_separate:
+        # followup_separate (enrollment step) takes priority over sales question
+        # on the same turn — avoid sending 3 messages when 2 are already enough.
+        sales_followup_q = None
+    if sales_followup_q:
+        sales_followup_q = _format_for_whatsapp(sales_followup_q)
+
     t_send = time.perf_counter()
     if followup_separate:
         await send_text_message_async(phone, full_reply)
@@ -571,6 +733,15 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await send_text_message_async(phone, followup_separate)
         combined = full_reply + "\n\n" + followup_separate
         print(f"[TIMING] {phone} interakt_send (2-msg): {time.perf_counter() - t_send:.2f}s")
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", combined, response_time_sec=latency_sec)
+        log_message(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
+    elif sales_followup_q:
+        await send_text_message_async(phone, full_reply)
+        await asyncio.sleep(1)
+        await send_text_message_async(phone, sales_followup_q)
+        combined = full_reply + "\n\n" + sales_followup_q
+        print(f"[TIMING] {phone} interakt_send (2-msg + sales_q): {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         save_message(phone, "assistant", combined, response_time_sec=latency_sec)
         log_message(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)

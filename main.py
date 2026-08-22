@@ -152,7 +152,7 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
 
     text_lower = text.lower()
     if matches_any(text_lower, AGENT_TRIGGER_WORDS):
-        reply = "Got it — connecting you with our team now. Someone will be with you shortly!"
+        reply = "Connecting you with our team now. Someone will be with you shortly!"
         await send_text_message_async(phone, reply)
         mark_escalated(phone)
         save_message(phone, "assistant", reply)
