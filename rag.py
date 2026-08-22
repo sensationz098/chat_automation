@@ -41,7 +41,7 @@ try:
     )
 
     retriever = db.as_retriever(
-        search_kwargs={"k": 5}
+        search_kwargs={"k": 6}
     )
     print("[rag.py] Qdrant vector DB connected successfully")
 except Exception as e:
@@ -156,41 +156,37 @@ def _is_transactional_input(text: str) -> bool:
 
 def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     """
-    Combines recent user message content with the incoming question to give the
-    vector retriever focused context for semantic search without diluting it
-    with long assistant greeting templates or unrelated responses.
+    Universal retrieval query builder.
+    Sends the exact, clean user question to Qdrant so vector embeddings match
+    the user's specific intent with 100% precision.
+    Never blindly concatenates past questions, which severely pollutes semantic search.
     """
-    q_lower = question.lower().strip()
-    
-    # Highly specific keywords should not be diluted by conversation history at all.
-    keywords = [
-        "syllabus", "syllbus", "syallbus", "topic", "topics", "course", "courses",
-        "fee", "fees", "price", "prices", "cost", "costs", "charge", "charges",
-        "timing", "timings", "schedule", "schedules", "time", "times",
-        "teacher", "teachers", "trainer", "trainers", "faculty", "instructor", "instructors",
-        "demo", "trial", "video", "videos", "app", "link", "download",
-        "enroll", "package", "duration", "month", "months", "year"
-    ]
-    if any(kw in q_lower for kw in keywords):
+    q_clean = question.strip()
+    if not q_clean:
         return question
 
-    if not chat_history:
-        return question
+    q_lower = q_clean.lower()
 
-    # Only include user's previous questions to provide conversational context,
-    # avoiding the assistant's long template greetings.
-    user_msgs = [turn["content"] for turn in chat_history if turn.get("role") == "user"]
-    recent = user_msgs[-2:]
-    if recent:
-        return f"{' '.join(recent)} {question}"
-    return question
+    # Ambiguous short follow-up pronouns that genuinely have no context on their own
+    followup_pronouns = ["unka", "unki", "unke", "inka", "inki", "inke", "she", "he", "her", "his", "they", "them", "woh", "wo", "uska", "uski", "uske"]
+    words = q_lower.split()
+    is_ambiguous_short = len(words) <= 4 and any(p in words for p in followup_pronouns)
+
+    if is_ambiguous_short and chat_history:
+        # Only add a snippet of the immediate last message if user used a naked pronoun
+        for turn in reversed(chat_history):
+            content = turn.get("content", "").strip()
+            if content:
+                return f"{content[:50]} {q_clean}"
+
+    return q_clean
 
 
-async def ask_rag_async(question: str, chat_history: list = None, state: dict = None) -> str:
+async def ask_rag_async(question: str, chat_history: list = None, state: dict = None) -> dict:
     """
     Async RAG query function. Retrieves relevant knowledge chunks from Qdrant
     and passes them alongside session state to OpenAI LLM.
-    All I/O operations use async for maximum concurrency.
+    Returns dict: {"reply": str, "sources": str} where sources are the Qdrant chunks retrieved.
     """
     t0 = time.perf_counter()
 
@@ -198,19 +194,24 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
         # Format custom system prompt with user's active session state
         sys_prompt_content = format_system_prompt(state or {"stage": "NEW"})
         context = ""
+        sources_text = ""       # Qdrant source chunk previews for CSV
+        retrieval_query_used = ""  # Exact query sent to Qdrant
 
-        # Run vector database search if retriever is loaded and query is not transactional
+        # Run vector database search if retriever is loaded
         if retriever is not None:
-            retrieval_query = _build_retrieval_query(question, chat_history)
+            retrieval_query_used = _build_retrieval_query(question, chat_history)
             t_retrieve = time.perf_counter()
             try:
-                docs = await retriever.ainvoke(retrieval_query)
+                docs = await retriever.ainvoke(retrieval_query_used)
             except Exception:
-                docs = await asyncio.to_thread(retriever.invoke, retrieval_query)
+                docs = await asyncio.to_thread(retriever.invoke, retrieval_query_used)
             print(f"[TIMING] rag retrieval: {time.perf_counter() - t_retrieve:.2f}s ({len(docs)} docs)")
+            print(f"[PROMPT-DEBUG] RETRIEVAL_QUERY: {retrieval_query_used!r}")
             context = "\n\n".join([doc.page_content for doc in docs])
+            sources_text = " | ".join([doc.page_content[:100].replace("\n", " ") for doc in docs]) if docs else ""
         else:
             print(f"[TIMING] rag retrieval: SKIPPED (transactional input)")
+            docs = []
 
         # Construct message payload for LangChain OpenAI LLM
         messages = [SystemMessage(content=sys_prompt_content)]
@@ -236,6 +237,40 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
             "4. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
             "5. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
         )
+        # ── FULL AI PAYLOAD DEBUG ──────────────────────────────────────────
+        try:
+            sep = "=" * 60
+            history_formatted = "\n".join(
+                f"  [{t.get('role','?').upper()}]: {t.get('content','')}"
+                for t in (chat_history or [])
+            ) or "  (none)"
+            context_formatted = "\n".join(
+                f"  [CHUNK {i+1}]:\n{doc.page_content}"
+                for i, doc in enumerate(docs)
+            ) if docs else "  (no chunks retrieved)"
+            debug_text = (
+                f"\n{sep}\n"
+                f"SAARE DETAILS JO AI KO JAARI H WO YE H :\n"
+                f"{sep}\n"
+                f"[1] STAGE       : {state.get('stage') if state else 'N/A'}\n"
+                f"[2] USER MSG    : {question}\n"
+                f"[3] AI LAST MSG : {last_ai_message}\n"
+                f"[4] RETRIEVAL Q : {retrieval_query_used}\n"
+                f"\n[5] QDRANT CHUNKS ({len(docs)} fetched):\n{context_formatted}\n"
+                f"\n[6] CHAT HISTORY ({len(chat_history or [])} turns):\n{history_formatted}\n"
+                f"\n[7] SYSTEM PROMPT (FULL):\n{sys_prompt_content}\n"
+                f"\n[8] FULL USER_MSG TO LLM:\n{user_msg}\n"
+                f"{sep}\n"
+            )
+            # Safe print that won't crash on Windows consoles with limited charsets
+            try:
+                print(debug_text)
+            except UnicodeEncodeError:
+                print(debug_text.encode('utf-8', errors='replace').decode('ascii', errors='replace'))
+        except Exception as pe:
+            print(f"[rag.py] Debug print notice: {pe}")
+        # ──────────────────────────────────────────────────────────────────
+
         messages.append(HumanMessage(content=user_msg))
 
         # Call LLM model asynchronously to generate response
@@ -248,14 +283,14 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
 
         result = response.content.strip()
         print(f"[TIMING] rag TOTAL: {time.perf_counter() - t0:.2f}s")
-        return result
+        return {"reply": result, "sources": sources_text, "retrieval_query": retrieval_query_used}
 
     except Exception as e:
         error = str(e).lower()
         if "quota" in error or "429" in error or "resource_exhausted" in error:
-            return "Sorry, the AI service has reached its usage limit. Please try again later."
+            return {"reply": "Sorry, the AI service has reached its usage limit. Please try again later.", "sources": "", "retrieval_query": ""}
         print(f"[rag.py] ask_rag_async error: {e}")
-        return "Sorry, I'm unable to process your request right now."
+        return {"reply": "Sorry, I'm unable to process your request right now.", "sources": "", "retrieval_query": ""}
 
 
 def stream_rag(question: str, chat_history: list = None, state: dict = None):

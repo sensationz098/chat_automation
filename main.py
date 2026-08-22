@@ -8,14 +8,14 @@ The fallback path also uses fully async I/O.
 
 import os
 import time
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 from interakt import (
     send_text_message_async,
     assign_chat_to_agent_async,
     verify_webhook_signature,
 )
-from follow_up_worker import sweep_once
+
 from csv_logger import log_message
 from chat_history import save_message, get_recent_history, get_full_history_for_agent
 from rag import ask_rag_async
@@ -51,13 +51,6 @@ def _extract_phone(customer: dict) -> str:
         return country_code + phone_num
     return phone_num or str(customer.get("channel_phone_number", ""))
 
-
-@app.post("/internal/followup-sweep")
-async def followup_sweep_endpoint(x_secret: str = Header(None)):
-    if x_secret != FOLLOWUP_SECRET:
-        raise HTTPException(status_code=403, detail="forbidden")
-    await sweep_once()
-    return {"status": "swept"}
 
 # ---------------------------------------------------------------------------
 # Endpoints

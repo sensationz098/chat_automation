@@ -294,6 +294,83 @@ CONFIRMATION_WORDS = [
     "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
 ]
 
+def _detect_timing(text_lower: str) -> tuple:
+    """
+    Comprehensive timing detection supporting all user typing styles:
+    Hindi 'X se Y', compact 'XYam', 'X to Y am/pm', 'X-Y am/pm', 'Xam/Xpm'.
+    Returns: (timing_str or None, is_ambiguous: bool, ambiguous_range: str)
+    """
+    t = text_lower
+
+    def has(*pats):
+        return any(p in t for p in pats)
+
+    # === Priority 1: Explicit range WITH AM (covers 'X se Y am', 'XYam', 'X to Y am', 'X-Y am') ===
+    if has("5 se 6 am", "5se6am", "5 to 6 am", "5to6am", "5-6 am", "5-6am", "5 6 am", "56am", "5:00 am", "subah 5", "5 baje subah"):
+        return "5:00–6:00 AM", False, ""
+    if has("6 se 7 am", "6se7am", "6 to 7 am", "6to7am", "6-7 am", "6-7am", "6 7 am", "67am", "6:00 am", "subah 6", "6 baje subah", "morning 6"):
+        return "6:00–7:00 AM", False, ""
+    if has("7 se 8 am", "7se8am", "7 to 8 am", "7to8am", "7-8 am", "7-8am", "7 8 am", "78am", "7:00 am", "subah 7", "7 baje subah", "morning 7"):
+        return "7:00–8:00 AM", False, ""
+    if has("8 se 9 am", "8se9am", "8 to 9 am", "8to9am", "8-9 am", "8-9am", "8 9 am", "89am", "8:00 am", "subah 8", "8 baje subah", "morning 8"):
+        return "8:00–9:00 AM", False, ""
+    if has("10 se 11 am", "10se11am", "10 to 11 am", "10to11am", "10-11 am", "10-11am", "10 11 am", "1011am", "10:00 am", "subah 10", "10 baje subah", "das baje"):
+        return "10:00–11:00 AM", False, ""
+
+    # === Priority 2: Explicit range WITH PM ===
+    if has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "dopahar", "lunch", "baarah baje", "12 baje dopahar"):
+        return "12:00–1:00 PM", False, ""
+    if has("4 se 5 pm", "4se5pm", "4 to 5 pm", "4to5pm", "4-5 pm", "4-5pm", "4 5 pm", "45pm", "4:00 pm", "shaam 4", "4 baje shaam", "evening 4"):
+        return "4:00–5:00 PM", False, ""
+    if has("5 se 6 pm", "5se6pm", "5 to 6 pm", "5to6pm", "5-6 pm", "5-6pm", "5 6 pm", "56pm", "5:00 pm", "shaam 5", "5 baje shaam", "evening 5"):
+        return "5:00–6:00 PM", False, ""
+    if has("6 se 7 pm", "6se7pm", "6 to 7 pm", "6to7pm", "6-7 pm", "6-7pm", "6 7 pm", "67pm", "6:00 pm", "shaam 6", "6 baje shaam", "evening 6"):
+        return "6:00–7:00 PM", False, ""
+    if has("7 se 8 pm", "7se8pm", "7 to 8 pm", "7to8pm", "7-8 pm", "7-8pm", "7 8 pm", "78pm", "7:00 pm", "shaam 7", "7 baje shaam", "evening 7"):
+        return "7:00–8:00 PM", False, ""
+
+    # === Priority 3: Single time with explicit AM/PM (checked AFTER ranges to avoid false matches) ===
+    if has("6am", "6 am"):
+        return "6:00–7:00 AM", False, ""
+    if has("7am", "7 am"):
+        return "7:00–8:00 AM", False, ""
+    if has("8am", "8 am"):
+        return "8:00–9:00 AM", False, ""
+    if has("10am", "10 am"):
+        return "10:00–11:00 AM", False, ""
+    if has("12pm", "12 pm"):
+        return "12:00–1:00 PM", False, ""
+    if has("4pm", "4 pm"):
+        return "4:00–5:00 PM", False, ""
+    if has("5pm", "5 pm"):
+        return "5:00–6:00 PM", False, ""
+    if has("6pm", "6 pm"):
+        return "6:00–7:00 PM", False, ""
+    if has("7pm", "7 pm"):
+        return "7:00–8:00 PM", False, ""
+
+    # === Priority 4: Unambiguous ranges WITHOUT AM/PM (only one slot exists for that pair) ===
+    if has("10 to 11", "10 se 11", "10-11", "10 11", "10 baje", "das baje"):
+        return "10:00–11:00 AM", False, ""
+    if has("8 to 9", "8 se 9", "8-9"):
+        return "8:00–9:00 AM", False, ""
+    if has("4 to 5", "4 se 5", "4-5", "4 baje shaam"):
+        return "4:00–5:00 PM", False, ""
+    if has("12 to 1", "12 se 1", "12-1", "12 baje", "dopahar"):
+        return "12:00–1:00 PM", False, ""
+    # 5-6 without AM/PM → default to PM since 5 AM not offered to users
+    if has("5 to 6", "5 se 6"):
+        return "5:00–6:00 PM", False, ""
+
+    # === Priority 5: Ambiguous ranges (both AM and PM slots exist — ask user) ===
+    if has("6 to 7", "6 se 7"):
+        return None, True, "6 to 7"
+    if has("7 to 8", "7 se 8"):
+        return None, True, "7 to 8"
+
+    return None, False, ""
+
+
 async def extract_and_update_slots(phone: str, text: str, chat_history: list = None) -> dict:
     """
     Analyzes incoming user message, extracts batch timing or package selection,
@@ -350,42 +427,15 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
 
     # --- 1. Detect Batch Timing Slot ---
     timing_found = False
-    if any(t in text_lower for t in ["5 6 pm", "5-6 pm", "5-6pm", "5 to 6", "5:00 pm", "5pm", "5 pm"]):
-        state["timing"] = "5:00–6:00 PM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["6 7 pm", "6-7 pm", "6-7pm", "6 to 7 pm", "6:00 pm", "6pm", "6 pm"]):
-        state["timing"] = "6:00–7:00 PM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["7 8 pm", "7-8 pm", "7-8pm", "7 to 8 pm", "7:00 pm", "7pm", "7 pm"]):
-        state["timing"] = "7:00–8:00 PM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["4 5 pm", "4-5 pm", "4-5pm", "4 to 5", "4:00 pm", "4pm", "4 pm"]):
-        state["timing"] = "4:00–5:00 PM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["12 1 pm", "12-1 pm", "12-1pm", "12 to 1", "12:00", "12pm", "12 pm"]):
-        state["timing"] = "12:00–1:00 PM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["6 7 am", "6-7 am", "6-7am", "6 to 7 am", "6:00 am", "6am", "6 am"]):
-        state["timing"] = "6:00–7:00 AM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["7 8 am", "7-8 am", "7-8am", "7 to 8 am", "7:00 am", "7am", "7 am"]):
-        state["timing"] = "7:00–8:00 AM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["8 9 am", "8-9 am", "8-9am", "8 to 9 am", "8:00 am", "8am", "8 am"]):
-        state["timing"] = "8:00–9:00 AM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
-    elif any(t in text_lower for t in ["10 11 am", "10-11 am", "10-11am", "10 to 11", "10:00 am", "10am", "10 am"]):
-        state["timing"] = "10:00–11:00 AM"
-        state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-        timing_found = True
+    if not state.get("timing"):  # Only detect if timing not already set
+        timing_str, is_ambiguous, ambiguous_range = _detect_timing(text_lower)
+        if timing_str:
+            state["timing"] = timing_str
+            state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+            timing_found = True
+            state.pop("ambiguous_timing_range", None)  # clear any pending ambiguity
+        elif is_ambiguous:
+            state["ambiguous_timing_range"] = ambiguous_range
 
     # --- 2. Detect Package / Duration Slot ---
     # We allow package detection at any stage if the text contains clear indicators,

@@ -49,6 +49,52 @@ PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
 AGENT_POOL = [e for e in [PRIORITY_AGENT_EMAIL_ANOTHER_1, PRIORITY_AGENT_EMAIL_ANOTHER_2] if e]
 
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
+
+
+def _agent_nudge(user_text: str) -> str:
+    """
+    Returns the 'contact agent' nudge message in the user's language.
+    Detects Hindi/Hinglish by checking for Devanagari script or common Hindi words.
+    """
+    hindi_markers = ["kya", "hai", "mujhe", "batao", "dijiye", "chahiye", "ka", "ki", "ke", "nahi", "haan", "aur", "se", "bhi"]
+    text_lower = user_text.lower()
+    has_devanagari = any("\u0900" <= ch <= "\u097F" for ch in user_text)
+    has_hindi_word = any(w in text_lower.split() for w in hindi_markers)
+
+    if has_devanagari or has_hindi_word:
+        return (
+            "\n\n💬 Iske baare mein aur jaankari ke liye aap *agent* type karein, "
+            "ya hamare support team se seedha baat karein: *9898989898*"
+        )
+    return (
+        "\n\n💬 To know more, type *agent* to connect with our support team, "
+        "or call us directly at *9898989898*."
+    )
+def _format_for_whatsapp(text: str) -> str:
+    """
+    Cleans up text specifically for WhatsApp rendering:
+    - Converts Markdown **bold** to WhatsApp *bold*
+    - Converts lines starting with loose asterisk bullets '* ' to bullet points '• '
+    - Replaces ### / ## headers with *bold headers*
+    """
+    if not text:
+        return text
+
+    # Convert ### Header or ## Header to *Header*
+    text = re.sub(r"^(?:#{1,6})\s+(.+)$", r"*\1*", text, flags=re.MULTILINE)
+
+    # Convert Markdown **bold** to WhatsApp *bold*
+    text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
+
+    # Convert lines starting with loose asterisk bullets to clean bullet '• '
+    text = re.sub(r"^\s*\*\s+", "• ", text, flags=re.MULTILINE)
+
+    # Clean double bullet markers if any (e.g. • - or - •)
+    text = re.sub(r"^•\s*-\s*", "• ", text, flags=re.MULTILINE)
+
+    return text.strip()
+
+
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
 
 INFO_INTENT_KEYWORDS = [
@@ -337,6 +383,22 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     is_q = is_user_asking_question(text)
     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
 
+    # --- Handle Ambiguous Timing (requires AM/PM clarification from user) ---
+    if state.get("ambiguous_timing_range") and not state.get("timing"):
+        amb = state.get("ambiguous_timing_range")
+        state["ambiguous_timing_range"] = None
+        save_user_state(phone, state)
+        reply = (
+            f"Aap {amb} ki timing chahte hain — subah (AM) ya shaam (PM)? 😊\n"
+            f"• Subah ke liye likhein: '{amb} AM'\n"
+            f"• Shaam ke liye likhein: '{amb} PM'"
+        )
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", reply)
+        return
+
     # Define flags for fresh transitions and confirmations/greetings
     text_lower = text.lower().strip()
     GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
@@ -450,8 +512,10 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     # --- Genuine question / off-flow topic — goes to RAG ---
     t_rag = time.perf_counter()
-    full_reply = await ask_rag_async(text, chat_history=history, state=state)
-    full_reply = full_reply.strip()
+    rag_result = await ask_rag_async(text, chat_history=history, state=state)
+    full_reply = rag_result["reply"].strip()
+    rag_sources = rag_result.get("sources", "")
+    rag_retrieval_query = rag_result.get("retrieval_query", "")
     print(f"[TIMING] {phone} rag_query: {time.perf_counter() - t_rag:.2f}s")
 
     # Strip any "type agent" line the LLM generated, count it silently,
@@ -464,13 +528,17 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     else:
         state["low_confidence_count"] = 0
 
+    followup_separate = None  # Will be sent as a second WhatsApp message if set
+
     if state.get("low_confidence_count", 0) >= 2:
-        full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
-        state["low_confidence_count"] = 0  # reset after nudging, don't nag every message after
+        # Only suggest agent if the reply was genuinely short/unhelpful (< 60 words)
+        if len(full_reply.split()) < 60:
+            full_reply += _agent_nudge(text)
+        state["low_confidence_count"] = 0  # reset after nudging
     else:
         followup = get_flow_followup(state)
         if followup:
-            # Strip trailing LLM-generated questions if we are about to append our own deterministic one
+            # Strip trailing LLM-generated questions before our deterministic one
             full_reply = re.sub(r"(?i)\n*would you like to.*?\?", "", full_reply)
             full_reply = re.sub(r"(?i)\n*do you want to.*?\?", "", full_reply)
             full_reply = re.sub(r"(?i)\n*please tell me your preferred.*?(?:\?|\.|!)", "", full_reply)
@@ -479,7 +547,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             full_reply = full_reply.strip()
 
             if not should_skip_followup(full_reply, state.get("stage")):
-                full_reply += followup
+                # Issue 4: Two-message stream — answer first, stage question separately
+                followup_separate = followup.strip()
 
     # Post-LLM State Transitions
     if state.get("stage") == "READY_FOR_APP_LINK":
@@ -490,13 +559,27 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         arm_followup_timer(state, topic=text)
     save_user_state(phone, state)
 
-    t_send = time.perf_counter()
-    await send_text_message_async(phone, full_reply)
-    print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
+    # Format full_reply and followup_separate for WhatsApp rendering
+    full_reply = _format_for_whatsapp(full_reply)
+    if followup_separate:
+        followup_separate = _format_for_whatsapp(followup_separate)
 
-    latency_sec = round(time.time() - start_time, 2) if start_time else None
-    save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
-    log_message(phone, "ai", full_reply)
+    t_send = time.perf_counter()
+    if followup_separate:
+        await send_text_message_async(phone, full_reply)
+        await asyncio.sleep(1)
+        await send_text_message_async(phone, followup_separate)
+        combined = full_reply + "\n\n" + followup_separate
+        print(f"[TIMING] {phone} interakt_send (2-msg): {time.perf_counter() - t_send:.2f}s")
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", combined, response_time_sec=latency_sec)
+        log_message(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
+    else:
+        await send_text_message_async(phone, full_reply)
+        print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
+        log_message(phone, "ai", full_reply, sources=rag_sources, retrieval_query=rag_retrieval_query)
 # ---------------------------------------------------------------------------
 # Main processing pipeline (NO per-phone Redis lock — debouncer handles it)
 # ---------------------------------------------------------------------------
