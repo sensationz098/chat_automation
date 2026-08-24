@@ -227,7 +227,7 @@ When a customer asks about Prenatal Yoga or other unlisted yoga types:
 
 --- SECTION: SOCIAL MEDIA TRUST AND REVIEWS ---
 For customers asking about reviews, testimonials, or authenticity:
-Google Reviews: https://www.google.com/search?q=sensationz+media+and+arts+pvt+ltd
+Google Reviews: https://www.google.com/search?sca_esv=aa15bb4e24e1b0b2&sxsrf=APpeQnthSZeQrG_1jOIdMiw8lwLSN263KQ:1787547573450&q=sensationz+media+and+arts+pvt+ltd&si=APenkKn5T4YN59srr511wD6k6Pufj9DEzRUvB1XJSwUeeT5afjHEj1pGj0lJucIJ06WTARM4fkNAay4xXT9ZB1Knohg6ybnm_OHe_D4sed4nQSlbBAGemhATK8j-dfi41rabhxa70BfM8Uq_3VJEFi9Nu3GXsqkh-pjpBMxOm0LqcE8yqRTuawA%3D&sa=X&ved=2ahUKEwiyr4nRvbiWAxUTAxAIHWj3BdYQrrQLegQIHBAA&biw=1707&bih=811&dpr=1.13
 
 Official Social Links:
 - Website: https://www.sensationzperformingarts.com/
@@ -313,6 +313,28 @@ A: Same batches are available for all genders.
 Q: Can we shift the timing of our batch?
 A: Yes, you can request a batch timing change after completing 1 month of admission.
 
+Q: Do you provide certificates after completion of the course?
+A: No, we do not provide certificates for the online yoga course.
 
+Q: What happens if a class is cancelled or missed due to technical or management issues?
+A: If a class cannot be conducted due to technical issues or management-related reasons, the class will be rescheduled. If the assigned teacher is unavailable, another teacher will conduct the class so that students can attend the scheduled session without interruption.
+
+Q: Do you reschedule classes?
+A: Yes. Classes will be rescheduled if a class is missed due to technical or management issues. If the teacher is absent, the class will be conducted by another teacher.
+
+Q: Can I transfer my course enrollment to another person or allow someone else to attend using my payment?
+A: No. One payment is valid for one person only. The payment and course enrollment are non-transferable, and no other person can use the payment or attend classes in place of the person who made the payment.
+
+Q: I joined a course somewhere else before, but I didn’t get any results. What do you do differently?
+A: Our teachers are experienced, certified, and professional, with extensive teaching experience. They focus on proper guidance, technique, regular practice, and personalized support to help students learn effectively. You can also check our student reviews on Google: Send Google Reviews link to the customer. We encourage students to attend classes regularly, practice consistently, and follow the guidance provided by our instructors for the best results.
+
+Q: Is the trial class free or paid?
+A: Trial classes are completely free and are available through the Sensationz app.
+
+Q: How can I pay the course fees?
+A: The course fees must be paid through the Sensationz app only. Download the app here: send app link too.
+
+Q: Can I attend 2 classes in one day?
+A: No. Only one class can be attended per day, according to your selected batch timing and schedule.
 
 END OF KNOWLEDGE BASE

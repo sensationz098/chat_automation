@@ -629,11 +629,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         fee = state.get("fee") or "₹1,750"
         reply = (
             f"You've selected the {package} package for {fee}.\n\n"
-            "To proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
-            "Please download the app here:\n\n"
+            "To continue, please download the Sensationz App and create your profile. "
+            "Once that's done, just reply *Done* or *Yes* here, and I'll send you a special welcome coupon code 🎁 "
+            "that you can use to get a discount on your course fee.\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
-            "Once you've downloaded the app and created your profile, let me know here so I can activate your welcome coupon!"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
         )
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
         arm_followup_timer(state, topic=text)
@@ -644,22 +644,34 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", reply)
         return
 
-    if state["stage"] == "PROFILE_COMPLETED" and not is_info_intent(text) and not state.get("coupon_sent"):
+    # ── Coupon Send ──────────────────────────────────────────────────────────
+    # Primary path: stage reached PROFILE_COMPLETED
+    # Recovery path: user explicitly asks for coupon after profile is done
+    _COUPON_REQUEST_KWS = ["Done","Yes"]
+    _is_coupon_request = any(kw in text.lower() for kw in _COUPON_REQUEST_KWS)
+    _should_send_coupon = (
+        (state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"))
+        or (_is_coupon_request and state.get("profile_created") and not state.get("coupon_sent"))
+    )
+
+    if _should_send_coupon:
         reply = (
             "🎉 Welcome to the Sensationz Yoga family! 🌸\n"
             "Your app setup and profile are complete.\n\n"
-            "🎁 Your personalized welcome coupon code is: **SENSZAPP**\n\n"
+            "🎁 Your welcome coupon code is: *SENSZAPP*\n\n"
             "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
         )
         state["coupon_sent"] = True
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
-        # No follow-up timer here — flow is complete, don't nag after coupon.
+        # No follow-up timer here — flow is complete.
+        arm_followup_timer(state, topic="coupon activation")
         save_user_state(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
         log_message(phone, "ai", reply)
         return
+    # ─────────────────────────────────────────────────────────────────────────
 
 
     # --- Genuine question / off-flow topic — goes to RAG ---
@@ -707,8 +719,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
 
     # Only keep nudging the customer if the flow isn't finished yet
-    if state.get("stage") not in ["COUPON_SENT"]:
-        arm_followup_timer(state, topic=text)
+    # if state.get("stage") not in ["COUPON_SENT"]:
+    arm_followup_timer(state, topic=text)
     save_user_state(phone, state)
 
     # Format full_reply and followup_separate for WhatsApp rendering
