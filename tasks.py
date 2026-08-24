@@ -624,7 +624,65 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         return
 
 
-    if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
+    # ── Discount / coupon question — intercept at ANY stage ──────────────────
+    # Never let RAG handle discount/coupon questions — it doesn't have this info.
+    # We set full_reply here and fall through to the normal send path so that
+    # get_flow_followup() automatically appends the next enrollment step as msg 2.
+    _DISCOUNT_KWS = [
+        "discount", "coupon", "offer", "special", "code",
+        "discount code", "coupon code", "kya milega", "kya hoga", "kya discount",
+        "special discount", "special offer", "discount btao", "koi offer",
+    ]
+    _is_discount_query = any(kw in text_lower for kw in _DISCOUNT_KWS)
+
+    if _is_discount_query and not state.get("coupon_sent"):
+        current_stage = state.get("stage", "NEW")
+
+        if current_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
+            discount_reply = (
+                "Aapke liye ek special welcome discount code hai 🎁\n\n"
+                "Sirf Sensationz App download karein aur apna profile banayein — "
+                "uske baad *Done* ya *Yes* reply karein, aur main turant aapka coupon code bhej dunga!\n\n"
+                "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
+            )
+            state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
+        else:
+            # Early stage — answer discount question, flow follow-up will prompt next step
+            discount_reply = (
+                "Haan, aapko ek special *welcome coupon code* milega 🎁\n\n"
+                "Ye coupon aapke course fee mein discount deta hai. Isko paane ke liye:\n"
+                "1️⃣ Apna timing aur package choose karein\n"
+                "2️⃣ Sensationz App download karein\n"
+                "3️⃣ App mein profile banayein\n"
+                "4️⃣ Yahan *Done* ya *Yes* reply karein — coupon turant bhej diya jayega!"
+            )
+
+        # Build followup_separate from enrollment flow state
+        followup_separate = get_flow_followup(state)
+        if followup_separate:
+            followup_separate = followup_separate.strip()
+
+        arm_followup_timer(state, topic=text)
+        save_user_state(phone, state)
+
+        discount_reply = _format_for_whatsapp(discount_reply)
+        if followup_separate:
+            followup_separate = _format_for_whatsapp(followup_separate)
+            await send_text_message_async(phone, discount_reply)
+            await asyncio.sleep(1)
+            await send_text_message_async(phone, followup_separate)
+            combined = discount_reply + "\n\n" + followup_separate
+        else:
+            await send_text_message_async(phone, discount_reply)
+            combined = discount_reply
+
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        save_message(phone, "assistant", combined, response_time_sec=latency_sec)
+        log_message(phone, "ai", combined)
+        return
+
+    if state["stage"] == "READY_FOR_APP_LINK":
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750"
         reply = (
@@ -647,16 +705,17 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # ── Coupon Send ──────────────────────────────────────────────────────────
     # Primary path: stage reached PROFILE_COMPLETED
     # Recovery path: user explicitly asks for coupon after profile is done
-    _COUPON_REQUEST_KWS = ["Done","Yes"]
-    _is_coupon_request = any(kw in text.lower() for kw in _COUPON_REQUEST_KWS)
+    _COUPON_REQUEST_KWS = ["done", "yes", "profile created", "profile done", "completed", "installed", "downloaded", "haan"]
+    _is_coupon_request = matches_any(text, _COUPON_REQUEST_KWS)
     _should_send_coupon = (
         (state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"))
         or (_is_coupon_request and state.get("profile_created") and not state.get("coupon_sent"))
     )
 
+
     if _should_send_coupon:
         reply = (
-            "🎉 Welcome to the Sensationz Yoga family! 🌸\n"
+            "🎉 Welcome to the Sensationz family! 🌸\n"
             "Your app setup and profile are complete.\n\n"
             "🎁 Your welcome coupon code is: *SENSZAPP*\n\n"
             "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"

@@ -83,6 +83,7 @@ async def sweep_once():
                 print(f"[followup_worker] {phone}: sent 1st reminder")
 
             elif count == 1:
+                # 2nd consecutive unanswered follow-up → escalate to human agent
                 agent = get_next_agent_email()
                 reply = "Connecting you with our team now. Someone will be with you shortly!"
                 if agent:
@@ -97,7 +98,7 @@ async def sweep_once():
                     "next_followup_due_at": None,
                     "is_escalated": True,
                 }).eq("phone", phone).execute()
-                print(f"[followup_worker] {phone}: escalated after 2nd silence")
+                print(f"[followup_worker] {phone}: escalated after 2 consecutive silences")
 
         except Exception as e:
             print(f"[followup_worker] Error processing {phone}: {e}")

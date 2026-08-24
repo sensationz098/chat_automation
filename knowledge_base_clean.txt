@@ -1,4 +1,4 @@
-SENSATIONZ YOGA — OFFICIAL KNOWLEDGE BASE v3.0
+SENSATIONZ — OFFICIAL KNOWLEDGE BASE v3.0
 ==============================================
 Organization: Sensationz Media & Arts
 Document Status: Active
@@ -9,7 +9,7 @@ Organization: Sensationz Media & Arts
 Established: 2007
 Students Trained: 100,000+
 Countries Served: 18+
-Services: Performing arts, wellness, dance, fitness, music, spoken English, yoga.
+Services: Yoga, wellness, dance, fitness, music, spoken English, kathak.
 Studio Location: Rohini, Delhi, India
 The Yoga program is currently offered ONLINE ONLY.
 
@@ -199,7 +199,7 @@ Each session is 1 hour long.
 --- SECTION: COMPANY COURSES OFFERED ---
 Sensationz Media and Arts offers training in:
 - Yoga and Wellness: Online Yoga, Face Yoga, Tummy Yoga, Meditation, Fitness Yoga
-- Performing Arts, Dance, Fitness, Music, Spoken English
+- Kathak, Dance, Fitness, Music, Spoken English
 
 
 --- SECTION: BRANCH AND OFFICE LOCATIONS ---
@@ -218,7 +218,7 @@ No Refund Policy: Fees once paid are non-refundable. Do not promise refunds or e
 --- SECTION: HEALTH AND MEDICAL QUESTIONS ---
 The course covers Yoga topics related to: Back Pain, PCOS, Stress Relief, Disease Management, Flexibility and Strength.
 The AI must NOT provide personalized medical diagnosis, treatment, cure claims, or exercise prescriptions.
-Prenatal Yoga, Postnatal Yoga, Kids Yoga, Face Yoga, and 1-on-1 private classes are NOT offered or conducted in current live classes.
+Prenatal Yoga, Postnatal Yoga, Kids Yoga, and 1-on-1 private classes are NOT offered or conducted in current live classes.
 When a customer asks about Prenatal Yoga or other unlisted yoga types:
 1. Clearly state that we do NOT currently offer or teach that specific yoga class.
 2. Do NOT mention any teacher's individual certification (e.g. do not mention Mradula's prenatal certification).
@@ -304,7 +304,7 @@ A: No, Prenatal Yoga is not currently offered or taught. We do not have prenatal
 Q: When batches start normally?
 A: Batches are ongoing, Please enroll soon to not miss any classes. 
 
-Q: Do u provide discount codes or coupons?
+Q: Do you provide discount codes or coupons?
 A: Download the Sensationz App and create profile then send a message afterwards will send special discount codes. Send the customer the app download links for Android and iOS.
 
 Q: Do you provide the same batches for all genders, or are they gender-specific?
@@ -336,5 +336,14 @@ A: The course fees must be paid through the Sensationz app only. Download the ap
 
 Q: Can I attend 2 classes in one day?
 A: No. Only one class can be attended per day, according to your selected batch timing and schedule.
+
+Q: If i pay for any course package, do i need to pay gst extra?
+A: No. The course fees mentioned are exclusive of GST. Applicable GST will be added separately to the course fee at the time of payment. The final amount you pay will include the course fee plus the applicable GST.
+
+Q: Do you provide any offline classes?
+A: No. We currently provide online classes only. All classes are conducted through the Sensationz app, and students can attend from anywhere using a mobile phone, laptop, desktop, or tablet with a stable internet connection. Our online classes are open to everyone aged 8 years and above. The physical studio location in Rohini, Delhi is not used for these online classes.
+
+Q: When asked about face yoga, what should I say?
+A: Face Yoga is offered as a separate course. It is not included in the general online yoga classes. 
 
 END OF KNOWLEDGE BASE

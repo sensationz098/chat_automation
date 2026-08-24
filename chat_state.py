@@ -522,6 +522,7 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
 
 
     # --- 4. Detect App Install & Profile Completion ---
+    # --- 4. Detect App Install & Profile Completion ---
     # Triggered ONLY when stage is APP_LINK_SENT or READY_FOR_APP_LINK.
     if state["stage"] in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
         _PROFILE_DONE_KWS = [
@@ -531,7 +532,7 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
             # Generic completion
             "done", "ho gaya", "ho gya", "ho gai", "ho gayi", "ho gyi",
             "ho geya", "hogaya", "hogya",
-            # Kar liya / kr liya variants (with and without space)
+            # Kar liya / kr liya variants
             "kar liya", "kr liya", "kar diya", "kr diya", "krdia", "kardiya",
             "krliya", "krdiya", "kar li", "kr li",
             # Bana liya variants
@@ -539,13 +540,12 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
             # App/install/download done
             "download kar liya", "download kr liya", "install kar liya", "install kr liya",
             "app done", "downloaded", "installed",
-            # Affirmatives (yes/haan) — only valid here since we already asked
-            "yes", "haan", "haa", "ha", "han", "ji haan", "ji han", "bilkul",
-            "okay", "ok", "theek hai", "thik hai", "thik h", "theek h",
+            # Affirmatives (yes/haan) — explicit confirmation when asked
+            "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul",
             # English completions
             "completed", "complete", "created", "set up", "setup done", "all done",
         ]
-        if any(w in text_lower for w in _PROFILE_DONE_KWS):
+        if matches_any(text_lower, _PROFILE_DONE_KWS):
             state["app_installed"] = True
             state["profile_created"] = True
             state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
