@@ -19,6 +19,7 @@ from chat_state import mark_escalated
 from chat_history import save_message
 from csv_logger import log_message
 from redis_client import get_redis_connection
+from agent_summary import send_agent_summary_async
 
 load_dotenv()
 
@@ -31,11 +32,12 @@ PRIORITY_AGENT_EMAIL_ANOTHER_2 = os.getenv("PRIORITY_AGENT_EMAIL_ANOTHER_2")
 AGENT_POOL = [e for e in [PRIORITY_AGENT_EMAIL_ANOTHER_1, PRIORITY_AGENT_EMAIL_ANOTHER_2] if e]
 
 
-def get_next_agent_email() -> str:
+def get_next_agent_email() -> tuple:
     if not AGENT_POOL:
-        return os.getenv("PRIORITY_AGENT_EMAIL")
+        return os.getenv("PRIORITY_AGENT_EMAIL"), 0
     counter = redis_conn.incr("agent_round_robin_counter")
-    return AGENT_POOL[(counter - 1) % len(AGENT_POOL)]
+    index = (counter - 1) % len(AGENT_POOL)
+    return AGENT_POOL[index], index
 
 
 async def sweep_once():
@@ -83,8 +85,8 @@ async def sweep_once():
                 print(f"[followup_worker] {phone}: sent 1st reminder")
 
             elif count == 1:
-                # 2nd consecutive unanswered follow-up → escalate to human agent
-                agent = get_next_agent_email()
+                # 2nd consecutive unanswered follow-up -> escalate to human agent
+                agent, agent_index = get_next_agent_email()
                 reply = "Connecting you with our team now. Someone will be with you shortly!"
                 if agent:
                     await assign_chat_to_agent_async(phone, agent)
@@ -92,6 +94,13 @@ async def sweep_once():
                 mark_escalated(phone)
                 save_message(phone, "assistant", reply)
                 log_message(phone, "agent", reply)
+                # Send Hinglish summary to the assigned agent's WhatsApp number
+                asyncio.create_task(
+                    send_agent_summary_async(
+                        phone, agent_index,
+                        escalation_reason="2 follow-up messages ka jawab nahi aaya (silence)"
+                    )
+                )
 
                 supabase.table("user_session_state").update({
                     "follow_up_count": 2,

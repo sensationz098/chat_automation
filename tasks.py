@@ -35,6 +35,7 @@ from chat_state import (
 from rag import ask_rag_async, stream_rag
 from redis_client import get_redis_connection
 from sales_followup import get_sales_followup
+from agent_summary import send_agent_summary_async
 import re
 
 load_dotenv()
@@ -185,18 +186,19 @@ AGENT_SUGGEST_PATTERN = re.compile(
 # ---------------------------------------------------------------------------
 # Round-robin agent selection (Redis INCR — atomic, multi-process safe)
 # ---------------------------------------------------------------------------
-def get_next_agent_email() -> str:
+def get_next_agent_email() -> tuple:
     """
-    Returns the next agent email in round-robin order.
+    Returns (agent_email, agent_index) in round-robin order.
     Uses Redis INCR for atomicity across concurrent requests and processes.
+    agent_index is used to send the summary to the matching agent phone number.
     """
     if not AGENT_POOL:
-        return PRIORITY_AGENT_EMAIL  # fallback
+        return PRIORITY_AGENT_EMAIL, 0  # fallback
     counter = redis_conn.incr("agent_round_robin_counter")
     index = (counter - 1) % len(AGENT_POOL)
     agent = AGENT_POOL[index]
     print(f"[round-robin] counter={counter} -> agent[{index}] = {agent}")
-    return agent
+    return agent, index
 
 
 # ---------------------------------------------------------------------------
@@ -255,12 +257,16 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
     print(f"[tasks] Agent requested by {phone}")
     reply = "Connecting you with our team now. Someone will be with you shortly!"
 
-    agent = get_next_agent_email()
+    agent, agent_index = get_next_agent_email()
     if agent:
         await assign_chat_to_agent_async(phone, agent)
         await send_text_message_async(phone, reply)
         mark_escalated(phone)
         log_message(phone, "agent", reply)
+        # Send Hinglish summary to the assigned agent's WhatsApp number
+        asyncio.create_task(
+            send_agent_summary_async(phone, agent_index, escalation_reason="Customer ne 'agent' type kiya")
+        )
     else:
         reply = (
             "Our team is currently offline, but we've noted your request "

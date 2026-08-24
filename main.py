@@ -93,7 +93,6 @@ async def receive_interakt_webhook(request: Request):
         print(f"[main] Batch enqueue failed ({e}) — fallback")
         return await _process_fallback(phone, text, referral, time.time())
 
-
 @app.post("/test-webhook")
 async def receive_test_webhook(request: Request):
     """Test endpoint — skips signature verification."""
@@ -146,7 +145,7 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         return {"status": "escalated"}
 
     # Round-robin agent assignment (async)
-    agent = get_next_agent_email()
+    agent, _agent_index = get_next_agent_email()
     if agent:
         await assign_chat_to_agent_async(phone, agent)
 
@@ -188,3 +187,4 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
     log_message(phone, "ai", full_reply)
     return {"status": "ok"}
+
