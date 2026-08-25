@@ -51,7 +51,7 @@ except Exception as e:
 llm = ChatOpenAI(
     model="gpt-5.6-luna",
     api_key=os.getenv("OPENAI_API_KEY"),
-    temperature=0.3,
+    temperature=0.5,
     timeout=30,
     max_retries=2,
 )
@@ -157,15 +157,22 @@ def _is_transactional_input(text: str) -> bool:
 def _build_retrieval_query(question: str, chat_history: list = None) -> str:
     """
     Universal retrieval query builder.
-    Sends the exact, clean user question to Qdrant so vector embeddings match
-    the user's specific intent with 100% precision.
-    Never blindly concatenates past questions, which severely pollutes semantic search.
+    Expands core subjects (fees, teachers) with rich semantic keywords so vector search
+    retrieves perfect Qdrant knowledge chunks even on short phrases or typos.
     """
     q_clean = question.strip()
     if not q_clean:
         return question
 
     q_lower = q_clean.lower()
+
+    # Expand fee/package queries so vector search hits fee chunks with 100% score
+    if any(w in q_lower for w in ["fee", "fees", "price", "cost", "charge", "package", "plan", "rate"]):
+        return f"Sensationz Yoga Course Fees Package Pricing Structure {q_clean}"
+
+    # Expand teacher/instructor queries
+    if any(w in q_lower for w in ["teacher", "instructor", "faculty", "trainer", "nidhi", "mradula", "sonali", "suman", "priya", "jagriti"]):
+        return f"Sensationz Yoga Instructor Teacher Qualifications Batches {q_clean}"
 
     # Ambiguous short follow-up pronouns that genuinely have no context on their own
     followup_pronouns = ["unka", "unki", "unke", "inka", "inki", "inke", "she", "he", "her", "his", "they", "them", "woh", "wo", "uska", "uski", "uske"]
@@ -235,7 +242,7 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
             "2. Read the customer's message carefully. It may contain multiple distinct questions or fragments of questions combined.\n"
             "3. Identify and answer EVERY distinct question or topic raised in the input. Do not skip any question.\n"
             "4. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
-            "5. Follow all constraints in the system prompt (e.g. no follow-up questions, respond in the correct language, answer only what is asked)."
+            "5. STRICT LANGUAGE MATCHING: Match the language of 'Customer's Current Reply'. If English, reply ONLY in pure English (0% Hindi/Hinglish). If Hinglish, reply in Hinglish. If Hindi, reply in Hindi."
         )
         # ── FULL AI PAYLOAD DEBUG ──────────────────────────────────────────
         try:

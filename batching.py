@@ -1,13 +1,13 @@
 """
-batching.py — implements fast, reliable debouncing (0.3s gap).
+batching.py — implements fast, reliable debouncing (1.2s idle gap, 2.5s max burst cap).
 If another message from the SAME person arrives during the window,
 combines them into a single prompt.
 
 Uses an asyncio task debouncer + Redis token verification:
-- No fragile rq_scheduler or separate background scheduler process required.
+- Single message users wait only 1.2s (faster response).
+- Rapid burst users wait max 2.5s total from 1st message.
 - 100% reliable execution after user finishes typing.
 """
-
 
 import os
 import uuid
@@ -20,20 +20,22 @@ from tasks import process_incoming_message_async
 
 load_dotenv()
 
-BATCH_WAIT_SECONDS = 2  # Group fragments within 5 seconds debounce window
+IDLE_DEBOUNCE_SECONDS = 1.2   # Idle gap wait (fires fast if user stops typing)
+MAX_BURST_CAP_SECONDS = 2.5   # Hard max wait from 1st message of a burst
 
 redis_conn = get_redis_connection()
 _active_debounce_tasks = {}
 
 
-async def _async_debounce_timer(phone: str, token: str):
+async def _async_debounce_timer(phone: str, token: str, wait_seconds: float):
     """
-    Waits BATCH_WAIT_SECONDS. If no newer message arrived for this phone number,
+    Waits wait_seconds. If no newer message arrived for this phone number,
     pulls all messages from batch:{phone}, combines them, and processes the AI reply.
     """
-    await asyncio.sleep(BATCH_WAIT_SECONDS)
+    await asyncio.sleep(wait_seconds)
     trigger_key = f"batch_trigger:{phone}"
     referral_key = f"batch_referral:{phone}"
+    first_time_key = f"batch_first_time:{phone}"
 
     try:
         current_token = redis_conn.get(trigger_key)
@@ -64,8 +66,9 @@ async def _async_debounce_timer(phone: str, token: str):
         redis_conn.delete(batch_key)
         redis_conn.delete(trigger_key)
         redis_conn.delete(referral_key)
+        redis_conn.delete(first_time_key)
 
-        print(f"[batching] {phone}: batch ready after {BATCH_WAIT_SECONDS}s -> '{combined_text}' | Referral: {referral}")
+        print(f"[batching] {phone}: batch ready after {wait_seconds:.2f}s -> '{combined_text}' | Referral: {referral}")
 
         # Process asynchronously
         t0 = time.perf_counter()
@@ -80,7 +83,7 @@ async def _async_debounce_timer(phone: str, token: str):
             raw_messages = redis_conn.lrange(batch_key, 0, -1)
             if raw_messages:
                 messages = [m.decode() if isinstance(m, bytes) else m for m in raw_messages]
-                combined_text = " ".join(messages)
+                combined_text = "\n".join(messages)
 
                 raw_referral = redis_conn.get(referral_key)
                 referral = None
@@ -93,6 +96,7 @@ async def _async_debounce_timer(phone: str, token: str):
                 redis_conn.delete(batch_key)
                 redis_conn.delete(trigger_key)
                 redis_conn.delete(referral_key)
+                redis_conn.delete(first_time_key)
                 await process_incoming_message_async(phone, combined_text, referral=referral)
         except Exception as ex:
             print(f"[batching] Fallback processing error for {phone}: {ex}")
@@ -101,17 +105,33 @@ async def _async_debounce_timer(phone: str, token: str):
 async def add_message_to_batch_async(phone: str, text: str, referral: dict = None):
     """
     Async function to add a message to this phone's batch
-    and spawn the debounce timer task.
+    and spawn the debounce timer task with 1.2s idle gap and 2.5s max cap.
     """
     batch_key = f"batch:{phone}"
     trigger_key = f"batch_trigger:{phone}"
     referral_key = f"batch_referral:{phone}"
+    first_time_key = f"batch_first_time:{phone}"
 
     redis_conn.rpush(batch_key, text)
 
     # Save referral data if provided
     if referral:
         redis_conn.setex(referral_key, 60, json.dumps(referral))
+
+    now = time.time()
+    first_time_raw = redis_conn.get(first_time_key)
+    if not first_time_raw:
+        redis_conn.setex(first_time_key, 60, str(now))
+        first_time = now
+    else:
+        try:
+            first_time = float(first_time_raw.decode() if isinstance(first_time_raw, bytes) else first_time_raw)
+        except Exception:
+            first_time = now
+
+    elapsed = now - first_time
+    remaining_burst_cap = max(0.1, MAX_BURST_CAP_SECONDS - elapsed)
+    wait_seconds = min(IDLE_DEBOUNCE_SECONDS, remaining_burst_cap)
 
     token = str(uuid.uuid4())
     redis_conn.set(trigger_key, token)
@@ -121,6 +141,8 @@ async def add_message_to_batch_async(phone: str, text: str, referral: dict = Non
     if old_task and not old_task.done():
         old_task.cancel()
 
-    task = asyncio.create_task(_async_debounce_timer(phone, token))
+    task = asyncio.create_task(_async_debounce_timer(phone, token, wait_seconds))
     _active_debounce_tasks[phone] = task
-    print(f"[batching] {phone}: message added to batch, processing in {BATCH_WAIT_SECONDS}s")
+    print(f"[batching] {phone}: message added to batch, waiting {wait_seconds:.2f}s (elapsed={elapsed:.2f}s)")
+
+

@@ -427,11 +427,11 @@ def get_flow_followup(state: dict) -> str:
     # 2. If app links are sent or ready for app link
     if state.get("stage") in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
         return (
-            "\n\nTo proceed, you'll need to download the Sensationz App, through which you'll receive your special welcome discount coupon 🎁.\n\n"
-            "Please download the app here:\n\n"
+            "Aapke liye ek special welcome discount code hai 🎁\n\n"
+            "Sirf Sensationz App download karein aur apna profile banayein — "
+            "uske baad *Done* ya *Yes* reply karein, aur main turant aapka coupon code bhej dunga!\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n\n"
-            "Once you've downloaded the app and created your profile, let me know here so I can activate your welcome coupon!"
+             "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
         )
         
     # 3. If timing is selected but package is missing
@@ -664,10 +664,16 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
                 "4️⃣ Yahan *Done* ya *Yes* reply karein — coupon turant bhej diya jayega!"
             )
 
-        # Build followup_separate from enrollment flow state
-        followup_separate = get_flow_followup(state)
-        if followup_separate:
-            followup_separate = followup_separate.strip()
+        # Build followup_separate from enrollment flow state.
+        # IMPORTANT: If the discount_reply already has the app download instructions
+        # (i.e. stage was READY_FOR_APP_LINK / APP_LINK_SENT), do NOT also call
+        # get_flow_followup() — it returns the same app-link content and causes a duplicate message.
+        if current_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
+            followup_separate = None
+        else:
+            followup_separate = get_flow_followup(state)
+            if followup_separate:
+                followup_separate = followup_separate.strip()
 
         arm_followup_timer(state, topic=text)
         save_user_state(phone, state)
@@ -688,7 +694,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         log_message(phone, "ai", combined)
         return
 
-    if state["stage"] == "READY_FOR_APP_LINK":
+    if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750"
         reply = (
@@ -832,14 +838,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 # Main processing pipeline (NO per-phone Redis lock — debouncer handles it)
 # ---------------------------------------------------------------------------
 
-async def process_incoming_message_async(phone: str, text: str, referral: dict = None):
-    """
-    Fully async message processing pipeline.
-
-    NO Redis lock needed — the batching debouncer in batching.py guarantees
-    only one task per phone is active at a time via token-based dedup.
-    Different phone numbers run fully concurrently with zero contention.
-    """
+async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
+    """Internal execution logic for message processing."""
     start_time = time.time()
     t0 = time.perf_counter()
 
@@ -860,9 +860,10 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
             save_user_state(phone, state)
     except Exception as e:
         print(f"[tasks] {phone}: Failed to save target flag: {e}")
-        state ={}
+        state = {}
     reset_follow_up_timer(state)
     save_user_state(phone, state)
+
     # 3. Fetch history
     t_hist = time.perf_counter()
     try:
@@ -886,7 +887,6 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
 
     # 6. Round-robin agent assignment (async, non-blocking)
     t_assign = time.perf_counter()
-    # agent = get_next_agent_email()
     if PRIORITY_AGENT_EMAIL and not state.get("already_assigned"):
         success = await assign_chat_to_agent_async(phone, PRIORITY_AGENT_EMAIL)
         if success:
@@ -903,7 +903,45 @@ async def process_incoming_message_async(phone: str, text: str, referral: dict =
 
     # 8. AI reply
     await handle_ai_reply_async(phone, text, history, start_time)
-
     print(f"[TIMING] {phone} PIPELINE TOTAL: {time.perf_counter() - t0:.2f}s")
+
+
+async def process_incoming_message_async(phone: str, text: str, referral: dict = None):
+    """
+    Fully async message processing pipeline with In-Flight Busy Guard and Queue Drain.
+    If the AI is actively generating a reply for this phone number, new incoming messages
+    are safely queued and processed together as 1 clean follow-up turn when active processing ends.
+    """
+    proc_lock_key = f"is_processing:{phone}"
+    pending_queue_key = f"pending_queue:{phone}"
+
+    # Check if AI is currently busy generating a reply for this user
+    if redis_conn.get(proc_lock_key):
+        print(f"[tasks] {phone}: AI is currently busy generating a reply — queueing message '{text}'")
+        redis_conn.rpush(pending_queue_key, text)
+        return
+
+    # Acquire lock (30s max safety TTL)
+    redis_conn.setex(proc_lock_key, 30, "true")
+
+    try:
+        await _execute_pipeline_async(phone, text, referral)
+    finally:
+        # Drain pending queue if any messages arrived while AI was typing
+        try:
+            raw_pending = redis_conn.lrange(pending_queue_key, 0, -1)
+            redis_conn.delete(pending_queue_key)
+            if raw_pending:
+                pending_msgs = [m.decode() if isinstance(m, bytes) else m for m in raw_pending]
+                combined_pending = "\n".join(pending_msgs)
+                print(f"[tasks] {phone}: draining {len(pending_msgs)} queued messages -> '{combined_pending}'")
+                # Release processing lock before recursive drain call
+                redis_conn.delete(proc_lock_key)
+                await process_incoming_message_async(phone, combined_pending, referral=referral)
+            else:
+                redis_conn.delete(proc_lock_key)
+        except Exception as ex:
+            redis_conn.delete(proc_lock_key)
+            print(f"[tasks] {phone}: error during queue drain: {ex}")
 
 

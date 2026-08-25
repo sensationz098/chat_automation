@@ -271,7 +271,8 @@ def is_user_asking_question(text: str) -> bool:
     # General informational question keywords
     question_keywords = [
         "who", "what", "where", "how", "why", "which", "when",
-        "kitne", "kitna", "kya", "kaun", "kaunsa", "kaunsi", "kaise", "kyu", "kyon", "kab",
+        "kitne", "kitna", "kya", "kaun", "kon", "kaunsa", "konsa", "kaunsi", "konsi", "kaise", "kyu", "kyon", "kab",
+        "kiska", "kiski", "kiske", "kaha", "kahan",
         "teacher", "teachers", "faculty", "student", "students",
         "discount", "costly", "expensive", "syllabus", "demo", "trial",
         "hindi", "english", "classes", "fees", "language", "languages",
@@ -310,7 +311,7 @@ def _detect_timing(text_lower: str) -> tuple:
         return bool(re.search(pattern, t))
 
     # === Priority 0: Explicit check for UNAVAILABLE / UNSUPPORTED batch requests ===
-    # If user explicitly asks for batch ranges that do not exist (e.g. 11-12, 1-2, 2-3, 3-4, 8-9 PM, 9-10),
+    # If user explicitly asks for batch ranges that do not exist (e.g. 11-12, 1-2, 2-3, 3-4, 8-9 PM, 9-10, 10-11 PM),
     # return None so slot extraction NEVER locks it in, allowing RAG to explain it is unavailable.
     unsupported_patterns = [
         r"(?<![0-9])11\s*(?:to|-|se|\s)\s*12\b",
@@ -333,6 +334,16 @@ def _detect_timing(text_lower: str) -> tuple:
         r"(?<![0-9])9se10\b",
         r"(?<![0-9])9to10\b",
         r"(?<![0-9])9-10\b",
+        r"(?<![0-9])10\s*(?:to|-|se|\s)\s*11\s*pm\b",
+        r"(?<![0-9])10\s*:\s*00\s*(?:to|-|se|\s)\s*11\s*:\s*00\s*pm\b",
+        r"(?<![0-9])10se11pm\b",
+        r"(?<![0-9])10to11pm\b",
+        r"(?<![0-9])10-11pm\b",
+        r"(?<![0-9])1011pm\b",
+        r"(?<![0-9])8\s*pm\b",
+        r"(?<![0-9])9\s*pm\b",
+        r"(?<![0-9])10\s*pm\b",
+        r"(?<![0-9])11\s*pm\b",
     ]
     if any(re_has(p) for p in unsupported_patterns):
         return None, False, ""
@@ -350,7 +361,7 @@ def _detect_timing(text_lower: str) -> tuple:
         return "10:00–11:00 AM", False, ""
 
     # === Priority 2: Explicit range WITH PM ===
-    if has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "dopahar", "lunch", "baarah baje", "12 baje dopahar"):
+    if has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "dopahar", "lunch", "baarah baje", "12 baje dopahar", "afternoon", "afternoon batch", "afternoon slot", "afternoon timing", "afternoon class"):
         return "12:00–1:00 PM", False, ""
     if has("4 se 5 pm", "4se5pm", "4 to 5 pm", "4to5pm", "4-5 pm", "4-5pm", "4 5 pm", "45pm", "4:00 pm", "shaam 4", "4 baje shaam", "evening 4"):
         return "4:00–5:00 PM", False, ""
@@ -382,7 +393,7 @@ def _detect_timing(text_lower: str) -> tuple:
         return "7:00–8:00 PM", False, ""
 
     # === Priority 4: Unambiguous ranges WITHOUT AM/PM (only one slot exists for that pair) ===
-    if has("10 to 11", "10 se 11", "10-11", "10 11", "10 baje", "das baje"):
+    if ("pm" not in t and "night" not in t and "shaam" not in t and "evening" not in t) and has("10 to 11", "10 se 11", "10-11", "10 11", "10 baje", "das baje"):
         return "10:00–11:00 AM", False, ""
     if has("8 to 9", "8 se 9", "8-9"):
         return "8:00–9:00 AM", False, ""
@@ -390,14 +401,13 @@ def _detect_timing(text_lower: str) -> tuple:
         return "4:00–5:00 PM", False, ""
     if has("12 to 1", "12 se 1", "12-1", "12 baje", "dopahar"):
         return "12:00–1:00 PM", False, ""
-    if has("5 to 6", "5 se 6"):
-        return "5:00–6:00 PM", False, ""
-
-    # === Priority 5: Ambiguous ranges (both AM and PM slots exist — ask user) ===
-    if has("6 to 7", "6 se 7"):
-        return None, True, "6 to 7"
-    if has("7 to 8", "7 se 8"):
-        return None, True, "7 to 8"
+    # === Priority 5: Ambiguous times & ranges (both AM and PM slots exist — ask user for AM/PM clarification) ===
+    if re_has(r"(?<![0-9\-])\b6(?:\s*:\s*00)?(?:\s*baje|\s*bje|\s*se|\s*to|-|\b)"):
+        return None, True, "6:00"
+    if re_has(r"(?<![0-9\-])\b7(?:\s*:\s*00)?(?:\s*baje|\s*bje|\s*se|\s*to|-|\b)"):
+        return None, True, "7:00"
+    if re_has(r"(?<![0-9\-])\b5(?:\s*:\s*00)?(?:\s*baje|\s*bje|\s*se|\s*to|-|\b)"):
+        return None, True, "5:00"
 
     return None, False, ""
 
@@ -460,7 +470,7 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
 
     # --- 1. Detect Batch Timing Slot ---
     timing_found = False
-    if not state.get("timing"):  # Only detect if timing not already set
+    if not state.get("timing") and not is_q:  # Only detect if timing not already set and user is NOT asking a question
         timing_str, is_ambiguous, ambiguous_range = _detect_timing(text_lower)
         if timing_str:
             state["timing"] = timing_str
@@ -469,33 +479,54 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
             state.pop("ambiguous_timing_range", None)  # clear any pending ambiguity
         elif is_ambiguous:
             state["ambiguous_timing_range"] = ambiguous_range
+            timing_found = True  # Prevents LLM fallback from executing and overriding ambiguous timings
 
     # --- 2. Detect Package / Duration Slot ---
     # We allow package detection at any stage if the text contains clear indicators,
     # or if the user is in a package selection stage (e.g. TIMING_SELECTED, PACKAGE_ASKED, PACKAGE_SELECTED).
     is_package_stage = (state.get("timing") is not None or state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED"])
-    
+
+    # Bare price numbers (700, 1750, etc.) must ONLY match when the user's message is very short
+    # (i.e., they actually typed just the number as a selection, not mentioned it inside a question/sentence).
+    _short_text = len(text_lower.strip()) <= 15
+
     is_package_detected = False
-    if (text_lower in ["3", "3m", "3 month", "3 months"] or any(p in text_lower for p in ["3 month", "1750", "1,750", "₹1,750"])) or (is_package_stage and text_lower in ["3", "three"]):
-        state["package"] = "3 Months"
-        state["fee"] = "₹1,750"
-        is_package_detected = True
-    elif (text_lower in ["1", "1m", "1 month", "one month"] or any(p in text_lower for p in ["1 month", "700", "₹700"])) or (is_package_stage and text_lower in ["1", "one"]):
-        state["package"] = "1 Month"
-        state["fee"] = "₹700"
-        is_package_detected = True
-    elif (text_lower in ["6", "6m", "6 month", "6 months"] or any(p in text_lower for p in ["6 month", "3200", "3,200", "₹3,200"])) or (is_package_stage and text_lower in ["6", "six"]):
-        state["package"] = "6 Months"
-        state["fee"] = "₹3,200"
-        is_package_detected = True
-    elif (text_lower in ["12", "1 year", "1yr", "1y", "yearly"] or any(p in text_lower for p in ["1 year", "5000", "5,000", "₹5,000"])) or (is_package_stage and text_lower in ["12", "twelve"]):
-        state["package"] = "1 Year"
-        state["fee"] = "₹5,000"
-        is_package_detected = True
+    # Skip package detection entirely when user is asking a question — prevents
+    # sentences like "why it's started with 700" from being misread as a package selection.
+    if not is_q:
+        if (text_lower in ["3", "3m", "3 month", "3 months"]
+                or any(p in text_lower for p in ["3 month", "\u20b91,750"])
+                or (_short_text and any(p in text_lower for p in ["1750", "1,750"]))
+                or (is_package_stage and text_lower in ["3", "three"])):
+            state["package"] = "3 Months"
+            state["fee"] = "\u20b91,750"
+            is_package_detected = True
+        elif (text_lower in ["1", "1m", "1 month", "one month"]
+                or any(p in text_lower for p in ["1 month", "\u20b9700"])
+                or (_short_text and "700" in text_lower)
+                or (is_package_stage and text_lower in ["1", "one"])):
+            state["package"] = "1 Month"
+            state["fee"] = "\u20b9700"
+            is_package_detected = True
+        elif (text_lower in ["6", "6m", "6 month", "6 months"]
+                or any(p in text_lower for p in ["6 month", "\u20b93,200"])
+                or (_short_text and any(p in text_lower for p in ["3200", "3,200"]))
+                or (is_package_stage and text_lower in ["6", "six"])):
+            state["package"] = "6 Months"
+            state["fee"] = "\u20b93,200"
+            is_package_detected = True
+        elif (text_lower in ["12", "1 year", "1yr", "1y", "yearly"]
+                or any(p in text_lower for p in ["1 year", "\u20b95,000"])
+                or (_short_text and any(p in text_lower for p in ["5000", "5,000"]))
+                or (is_package_stage and text_lower in ["12", "twelve"])):
+            state["package"] = "1 Year"
+            state["fee"] = "\u20b95,000"
+            is_package_detected = True
 
     needs_llm_fallback = (
         not timing_found and not is_package_detected
         and not is_greeting
+        and not is_q
         and len(text_lower) >= 1
         and state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED", "ENROLL_CONFIRMED"]
     )
@@ -522,30 +553,35 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
 
 
     # --- 4. Detect App Install & Profile Completion ---
-    # --- 4. Detect App Install & Profile Completion ---
     # Triggered ONLY when stage is APP_LINK_SENT or READY_FOR_APP_LINK.
     if state["stage"] in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
-        _PROFILE_DONE_KWS = [
+        _EXPLICIT_PROFILE_DONE_KWS = [
             # Explicit profile/both done
             "profile created", "profile done", "profile complete", "created profile",
             "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
-            # Generic completion
-            "done", "ho gaya", "ho gya", "ho gai", "ho gayi", "ho gyi",
+            # Generic completion with action verb
+            "ho gaya", "ho gya", "ho gai", "ho gayi", "ho gyi",
             "ho geya", "hogaya", "hogya",
-            # Kar liya / kr liya variants
             "kar liya", "kr liya", "kar diya", "kr diya", "krdia", "kardiya",
             "krliya", "krdiya", "kar li", "kr li",
-            # Bana liya variants
             "bana liya", "bna liya", "bana diya", "bna diya",
-            # App/install/download done
             "download kar liya", "download kr liya", "install kar liya", "install kr liya",
             "app done", "downloaded", "installed",
-            # Affirmatives (yes/haan) — explicit confirmation when asked
-            "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul",
-            # English completions
             "completed", "complete", "created", "set up", "setup done", "all done",
         ]
-        if matches_any(text_lower, _PROFILE_DONE_KWS):
+        _AFFIRMATIVE_KWS = [
+            "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul", "done"
+        ]
+
+        is_disinterest_pending = state.get("disinterest_asked_feedback", False)
+
+        is_profile_done = False
+        if matches_any(text_lower, _EXPLICIT_PROFILE_DONE_KWS):
+            is_profile_done = True
+        elif not is_disinterest_pending and not is_q and matches_any(text_lower, _AFFIRMATIVE_KWS):
+            is_profile_done = True
+
+        if is_profile_done:
             state["app_installed"] = True
             state["profile_created"] = True
             state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
