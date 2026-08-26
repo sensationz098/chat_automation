@@ -392,8 +392,8 @@ def should_skip_followup(user_text: str, full_reply: str, stage: str) -> bool:
     if any(kw in u_lower for kw in explore_kws):
         return True
 
-    # 4. Support, Agent, Refund, Cancellation
-    support_kws = ["agent", "human", "refund", "cancel", "complaint", "support", "call", "baat karni", "talk to"]
+    # 4. Support, Agent, Refund, Cancellation, Policy, Complaint, Dispute
+    support_kws = ["agent", "human", "refund", "cancel", "cancellation", "complaint", "dispute", "policy", "attendance", "reschedule", "pause", "support", "call", "baat karni", "talk to"]
     if any(kw in u_lower for kw in support_kws) or any(kw in r_lower for kw in support_kws):
         return True
 
@@ -800,8 +800,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         followup_separate = _format_for_whatsapp(followup_separate)
 
     # Compute sales follow-up question (independent of stage follow-up)
-    # get_sales_followup() handles all suppression logic internally.
+    # get_sales_followup() handles all topic suppression internally (medical, refund, complaint, agent)
     sales_followup_q = get_sales_followup(text, full_reply, state)
+
     if followup_separate:
         # followup_separate (enrollment step) takes priority over sales question
         # on the same turn — avoid sending 3 messages when 2 are already enough.

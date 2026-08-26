@@ -1,4 +1,4 @@
-﻿"""
+"""
 sales_followup.py — Active Sales Counsellor Follow-up Engine.
 
 Generates context-aware, stage-specific open-ended follow-up questions
@@ -28,13 +28,17 @@ _SUPPRESS_ON_USER_KWS = [
     # Unoffered services
     "kids yoga", "face yoga", "1-on-1", "one on one", "private class",
     "home tutor", "personal class",
+    # Refund / Support / Complaint / Legal / Disputes
+    "refund", "cancel", "cancellation", "complaint", "dispute", "police",
+    "legal", "agent", "support", "policy", "attendance", "reschedule", "pause",
 ]
 
 # If ANY of these appear in the bot reply, no follow-up is appended.
 _SUPPRESS_ON_REPLY_KWS = [
     "available nahi", "not available", "offer nahi", "not offered",
     "nahi sikhate", "nahi karwate", "currently not available",
-    "type *agent*", "support team can assist",
+    "type *agent*", "support team can assist", "non-refundable", "non refundable",
+    "agent type karein", "type agent", "kripya agent", "support team",
 ]
 
 # Stages where no sales follow-up is ever added
