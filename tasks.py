@@ -12,21 +12,21 @@ KEY CONCURRENCY DESIGN:
 import os
 import time
 import asyncio
-from dotenv import load_dotenv
-from chat_state import reset_follow_up_timer
-from interakt import (
-    send_text_message_async,
-    assign_chat_to_agent_async,
+from chat_state import reset_follow_up_timer, arm_followup_timer
+from chat_history import (
+    save_message, get_recent_history,
+    save_message_async, get_recent_history_async
 )
-from chat_state import reset_follow_up_timer
-from chat_state import arm_followup_timer
-from chat_history import save_message, get_recent_history
-from csv_logger import log_message
+from csv_logger import log_message, log_message_async
 from chat_state import (
     mark_escalated,
     is_escalated,
     get_user_state,
     save_user_state,
+    mark_escalated_async,
+    is_escalated_async,
+    get_user_state_async,
+    save_user_state_async,
     extract_and_update_slots,
     is_user_asking_question,
     matches_any,
@@ -37,6 +37,7 @@ from redis_client import get_redis_connection
 from sales_followup import get_sales_followup
 from agent_summary import send_agent_summary_async
 import re
+
 
 load_dotenv()
 
@@ -261,8 +262,8 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
     if agent:
         await assign_chat_to_agent_async(phone, agent)
         await send_text_message_async(phone, reply)
-        mark_escalated(phone)
-        log_message(phone, "agent", reply)
+        await mark_escalated_async(phone)
+        await log_message_async(phone, "agent", reply)
         # Send Hinglish summary to the assigned agent's WhatsApp number
         asyncio.create_task(
             send_agent_summary_async(phone, agent_index, escalation_reason="Customer ne 'agent' type kiya")
@@ -276,7 +277,8 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
 
     latency_sec = round(time.time() - start_time, 2) if start_time else None
     print(f"[TIMING] {phone} agent_handoff TOTAL: {latency_sec}s")
-    save_message(phone, "assistant", reply, response_time_sec=latency_sec)
+    await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+
 
 
 # ---------------------------------------------------------------------------
@@ -471,19 +473,19 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await send_text_message_async(phone, msg3)
 
         # Arm follow-up timer for this welcome message too
-        state = get_user_state(phone)
+        state = await get_user_state_async(phone)
         arm_followup_timer(state, topic="welcome message")
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
 
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         full_welcome = f"{msg1}\n{msg2}\n{msg3}"
-        save_message(phone, "assistant", full_welcome, response_time_sec=latency_sec)
-        log_message(phone, "ai", full_welcome)
+        await save_message_async(phone, "assistant", full_welcome, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", full_welcome)
         return
 
     # Fetch previous state stage before slot extraction ok ok
     try:
-        pre_state = get_user_state(phone)
+        pre_state = await get_user_state_async(phone)
         prev_stage = pre_state.get("stage") or "NEW"
     except Exception:
         prev_stage = "NEW"
@@ -497,7 +499,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     if state.get("ambiguous_timing_range") and not state.get("timing"):
         amb = state.get("ambiguous_timing_range")
         state["ambiguous_timing_range"] = None
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         reply = (
             f"Aap {amb} ki timing chahte hain — subah (AM) ya shaam (PM)? 😊\n"
             f"• Subah ke liye likhein: '{amb} AM'\n"
@@ -505,8 +507,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", reply)
         return
 
     # Define flags for fresh transitions and confirmations/greetings
@@ -533,17 +535,17 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     if is_disinterest and not state.get("disinterest_asked_feedback"):
         state["disinterest_asked_feedback"] = True
         arm_followup_timer(state, topic=text)
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         reply = _feedback_request_msg(text)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", reply)
         return
 
     if state.get("disinterest_asked_feedback"):
         state["disinterest_asked_feedback"] = False
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         if is_disinterest:
             # User still not interested — graceful exit, no pressure
             hindi_markers = ["nahi", "nhi", "mat", "abhi", "kya", "hai", "bhi", "se"]
@@ -554,11 +556,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             else:
                 reply = "Totally understood! 🙏 We're here whenever you're ready."
             arm_followup_timer(state, topic=text)
-            save_user_state(phone, state)
+            await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-            log_message(phone, "ai", reply)
+            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+            await log_message_async(phone, "ai", reply)
             return
         # User shared their reason — fall through to RAG with gentle context hint
         history = list(history) + [{
@@ -578,11 +580,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         if reply:
             reply = reply.strip()
             arm_followup_timer(state, topic=text)
-            save_user_state(phone, state)
+            await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-            log_message(phone, "ai", reply)
+            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+            await log_message_async(phone, "ai", reply)
             return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_ASKED" and (is_fresh_package_asked or is_confirmation or is_greeting):
@@ -590,11 +592,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         if reply:
             reply = reply.strip()
             arm_followup_timer(state, topic=text)
-            save_user_state(phone, state)
+            await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-            log_message(phone, "ai", reply)
+            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+            await log_message_async(phone, "ai", reply)
             return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "TIMING_SELECTED" and not state.get("package") and (is_fresh_timing_selected or is_confirmation or is_greeting):
@@ -605,11 +607,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
         state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
         arm_followup_timer(state, topic=text)
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", reply)
         return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing") and (is_fresh_package_selected or is_confirmation or is_greeting):
@@ -622,11 +624,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
         state["stage"] = advance_stage(state["stage"], "ENROLL_CONFIRMED")
         arm_followup_timer(state, topic=text)
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", reply)
         return
 
 
@@ -676,7 +678,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
                 followup_separate = followup_separate.strip()
 
         arm_followup_timer(state, topic=text)
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
 
         discount_reply = _format_for_whatsapp(discount_reply)
         if followup_separate:
@@ -690,8 +692,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             combined = discount_reply
 
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", combined, response_time_sec=latency_sec)
-        log_message(phone, "ai", combined)
+        await save_message_async(phone, "assistant", combined, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", combined)
         return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
@@ -707,11 +709,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
         arm_followup_timer(state, topic=text)
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", reply)
         return
 
     # ── Coupon Send ──────────────────────────────────────────────────────────
@@ -736,11 +738,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
         # No follow-up timer here — flow is complete.
         arm_followup_timer(state, topic="coupon activation")
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", reply)
+        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", reply)
         return
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -792,7 +794,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # Only keep nudging the customer if the flow isn't finished yet
     # if state.get("stage") not in ["COUPON_SENT"]:
     arm_followup_timer(state, topic=text)
-    save_user_state(phone, state)
+    await save_user_state_async(phone, state)
 
     # Format full_reply and followup_separate for WhatsApp rendering
     full_reply = _format_for_whatsapp(full_reply)
@@ -818,8 +820,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         combined = full_reply + "\n\n" + followup_separate
         print(f"[TIMING] {phone} interakt_send (2-msg): {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", combined, response_time_sec=latency_sec)
-        log_message(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
+        await save_message_async(phone, "assistant", combined, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
     elif sales_followup_q:
         await send_text_message_async(phone, full_reply)
         await asyncio.sleep(1)
@@ -827,14 +829,14 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         combined = full_reply + "\n\n" + sales_followup_q
         print(f"[TIMING] {phone} interakt_send (2-msg + sales_q): {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", combined, response_time_sec=latency_sec)
-        log_message(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
+        await save_message_async(phone, "assistant", combined, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
     else:
         await send_text_message_async(phone, full_reply)
         print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
-        log_message(phone, "ai", full_reply, sources=rag_sources, retrieval_query=rag_retrieval_query)
+        await save_message_async(phone, "assistant", full_reply, response_time_sec=latency_sec)
+        await log_message_async(phone, "ai", full_reply, sources=rag_sources, retrieval_query=rag_retrieval_query)
 # ---------------------------------------------------------------------------
 # Main processing pipeline (NO per-phone Redis lock — debouncer handles it)
 # ---------------------------------------------------------------------------
@@ -855,20 +857,20 @@ async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
 
     # 2. Persist target flag
     try:
-        state = get_user_state(phone)
+        state = await get_user_state_async(phone)
         if not state.get("is_target_ad"):
             state["is_target_ad"] = True
-            save_user_state(phone, state)
+            await save_user_state_async(phone, state)
     except Exception as e:
         print(f"[tasks] {phone}: Failed to save target flag: {e}")
         state = {}
     reset_follow_up_timer(state)
-    save_user_state(phone, state)
+    await save_user_state_async(phone, state)
 
     # 3. Fetch history
     t_hist = time.perf_counter()
     try:
-        history = get_recent_history(phone)
+        history = await get_recent_history_async(phone)
     except Exception as e:
         print(f"[tasks] {phone}: History fetch failed: {e}")
         history = []
@@ -876,13 +878,13 @@ async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
 
     # 4. Save incoming message
     try:
-        save_message(phone, "user", text)
-        log_message(phone, "user", text)
+        await save_message_async(phone, "user", text)
+        await log_message_async(phone, "user", text)
     except Exception as e:
         print(f"[tasks] {phone}: Failed to save message: {e}")
 
     # 5. Check escalation
-    if is_escalated(phone):
+    if await is_escalated_async(phone):
         print(f"[tasks] {phone}: Already escalated — bot staying out.")
         return
 
@@ -892,7 +894,7 @@ async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
         success = await assign_chat_to_agent_async(phone, PRIORITY_AGENT_EMAIL)
         if success:
             state["already_assigned"] = True
-            save_user_state(phone, state)
+            await save_user_state_async(phone, state)
     print(f"[TIMING] {phone} agent_assignment({PRIORITY_AGENT_EMAIL}): {time.perf_counter() - t_assign:.2f}s")
 
     # 7. Check for human agent trigger words
@@ -905,6 +907,7 @@ async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
     # 8. AI reply
     await handle_ai_reply_async(phone, text, history, start_time)
     print(f"[TIMING] {phone} PIPELINE TOTAL: {time.perf_counter() - t0:.2f}s")
+
 
 
 async def process_incoming_message_async(phone: str, text: str, referral: dict = None):

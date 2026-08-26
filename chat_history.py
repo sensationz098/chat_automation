@@ -96,3 +96,21 @@ def get_full_history_for_agent(phone: str):
         .execute()
     )
     return result.data
+
+
+# ---------------------------------------------------------------------------
+# Async non-blocking wrappers using asyncio.to_thread
+# ---------------------------------------------------------------------------
+import asyncio
+
+async def save_message_async(phone: str, role: str, text: str, response_time_sec: float = None):
+    """Non-blocking async wrapper to save messages to Supabase/Redis."""
+    return await asyncio.to_thread(save_message, phone, role, text, response_time_sec)
+
+async def get_recent_history_async(phone: str, limit: int = HISTORY_CACHE_LIMIT):
+    """Non-blocking async wrapper to fetch recent history from Redis/Supabase."""
+    return await asyncio.to_thread(get_recent_history, phone, limit)
+
+async def get_full_history_for_agent_async(phone: str):
+    """Non-blocking async wrapper for human-agent dashboard history."""
+    return await asyncio.to_thread(get_full_history_for_agent, phone)

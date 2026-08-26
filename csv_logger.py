@@ -93,3 +93,14 @@ def log_message(phone: str, role: str, message: str, sources: str = "", retrieva
     safe_msg = message[:80].encode("ascii", errors="replace").decode("ascii")
     src_flag = " [+sources]" if sources else ""
     print(f"[csv_logger] [{role.upper()}]{src_flag} {phone}: {safe_msg}...")
+
+
+# ---------------------------------------------------------------------------
+# Async non-blocking wrapper using asyncio.to_thread
+# ---------------------------------------------------------------------------
+import asyncio
+
+async def log_message_async(phone: str, role: str, message: str, sources: str = "", retrieval_query: str = ""):
+    """Non-blocking async wrapper to append row to CSV file on disk."""
+    return await asyncio.to_thread(log_message, phone, role, message, sources, retrieval_query)
+

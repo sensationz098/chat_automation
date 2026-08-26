@@ -15,15 +15,21 @@ from interakt import (
     assign_chat_to_agent_async,
     verify_webhook_signature,
 )
-
-from csv_logger import log_message
-from chat_history import save_message, get_recent_history, get_full_history_for_agent
+from csv_logger import log_message, log_message_async
+from chat_history import (
+    save_message, get_recent_history, get_full_history_for_agent,
+    save_message_async, get_recent_history_async, get_full_history_for_agent_async
+)
 from rag import ask_rag_async
 from chat_state import (
     mark_escalated,
     is_escalated,
     get_user_state,
     save_user_state,
+    mark_escalated_async,
+    is_escalated_async,
+    get_user_state_async,
+    save_user_state_async,
     extract_and_update_slots,
     matches_any,
     advance_stage,
@@ -57,7 +63,7 @@ def _extract_phone(customer: dict) -> str:
 # ---------------------------------------------------------------------------
 @app.get("/chat-history/{phone}")
 async def view_chat_history(phone: str):
-    return get_full_history_for_agent(phone)
+    return await get_full_history_for_agent_async(phone)
 
 
 @app.post("/webhook")
@@ -82,7 +88,7 @@ async def receive_interakt_webhook(request: Request):
     referral = message.get("referral", {})
 
     print(f"[main] Message from {phone}: {text}")
-    log_message(phone, "user", text)
+    await log_message_async(phone, "user", text)
 
     try:
         await add_message_to_batch_async(phone, text, referral=referral)
@@ -108,7 +114,7 @@ async def receive_test_webhook(request: Request):
     referral = message.get("referral", {})
 
     print(f"[test-webhook] {phone}: {text}")
-    log_message(phone, "user", text)
+    await log_message_async(phone, "user", text)
 
     try:
         await add_message_to_batch_async(phone, text, referral=referral)
@@ -129,19 +135,19 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         return {"status": "ignored, not matching target ad"}
 
     try:
-        state = get_user_state(phone)
+        state = await get_user_state_async(phone)
         if not state.get("is_target_ad"):
             state["is_target_ad"] = True
-            save_user_state(phone, state)
+            await save_user_state_async(phone, state)
     except Exception:
         pass
 
     try:
-        save_message(phone, "user", text)
+        await save_message_async(phone, "user", text)
     except Exception:
         pass
 
-    if is_escalated(phone):
+    if await is_escalated_async(phone):
         return {"status": "escalated"}
 
     # Round-robin agent assignment (async)
@@ -153,38 +159,39 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
     if matches_any(text_lower, AGENT_TRIGGER_WORDS):
         reply = "Connecting you with our team now. Someone will be with you shortly!"
         await send_text_message_async(phone, reply)
-        mark_escalated(phone)
-        save_message(phone, "assistant", reply)
+        await mark_escalated_async(phone)
+        await save_message_async(phone, "assistant", reply)
         return {"status": "handed off"}
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
         reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
-        "\n afternoon, and evening schedules. Please let us know which time of day you would prefer,"
+        "\n afternoon, and evening schedules. Please let us know which time of day you would prefer," \
         "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
         await send_text_message_async(phone, reply)
-        save_message(phone, "assistant", reply)
+        await save_message_async(phone, "assistant", reply)
         return {"status": "offer sent"}
 
     try:
-        history = get_recent_history(phone)
+        history = await get_recent_history_async(phone)
     except Exception:
         history = []
 
-    state = extract_and_update_slots(phone, text)
+    state = await extract_and_update_slots(phone, text)
     full_reply = await ask_rag_async(text, chat_history=history, state=state)
     
     # Post-LLM State Transitions
     if state.get("stage") == "READY_FOR_APP_LINK":
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
     elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
         state["coupon_sent"] = True
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
-        save_user_state(phone, state)
+        await save_user_state_async(phone, state)
 
     await send_text_message_async(phone, full_reply)
     latency_sec = round(time.time() - start_time, 2)
-    save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
-    log_message(phone, "ai", full_reply)
+    await save_message_async(phone, "assistant", full_reply, response_time_sec=latency_sec)
+    await log_message_async(phone, "ai", full_reply)
     return {"status": "ok"}
+
 

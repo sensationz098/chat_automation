@@ -230,7 +230,32 @@ def save_user_state(phone: str, state: dict):
             print(f"[chat_state] Supabase save_user_state failed: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Async non-blocking state wrappers using asyncio.to_thread
+# ---------------------------------------------------------------------------
+async def get_user_state_async(phone: str) -> dict:
+    """Non-blocking async wrapper to retrieve user state."""
+    return await asyncio.to_thread(get_user_state, phone)
+
+async def save_user_state_async(phone: str, state: dict):
+    """Non-blocking async wrapper to persist user state."""
+    return await asyncio.to_thread(save_user_state, phone, state)
+
+async def mark_escalated_async(phone: str):
+    """Non-blocking async wrapper to mark user as escalated."""
+    return await asyncio.to_thread(mark_escalated, phone)
+
+async def is_escalated_async(phone: str) -> bool:
+    """Non-blocking async wrapper to check escalation status."""
+    return await asyncio.to_thread(is_escalated, phone)
+
+async def clear_escalation_async(phone: str):
+    """Non-blocking async wrapper to clear escalation."""
+    return await asyncio.to_thread(clear_escalation, phone)
+
+
 def is_user_asking_question(text: str) -> bool:
+
     """
     Determines whether a user input message is an informational question
     (e.g. asking about video links, pricing, syllabus, faculty, or demo sessions)
@@ -417,11 +442,12 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     Analyzes incoming user message, extracts batch timing or package selection,
     and updates funnel stage (NEW -> ENROLL_ASKED -> ENROLL_CONFIRMED -> TIMING_SELECTED -> PACKAGE_ASKED -> READY_FOR_APP_LINK).
     """
-    # Retrieve current session state for this phone number
-    state = get_user_state(phone)
+    # Retrieve current session state for this phone number asynchronously
+    state = await get_user_state_async(phone)
     prev_stage = state.get("stage") or "NEW"
     # Reset follow-up counter whenever customer is actively chatting
     state["follow_up_count"] = 0
+
     text_lower = text.lower().strip()
     is_q = is_user_asking_question(text)
 
@@ -588,6 +614,6 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
             # Only app downloaded, profile not yet confirmed
             state["app_installed"] = True
 
-    # Persist updated session state
-    save_user_state(phone, state)
-    return state
+    # Persist updated session state asynchronously
+    await save_user_state_async(phone, state)
+    return state
