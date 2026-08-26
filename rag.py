@@ -27,7 +27,9 @@ try:
         url=os.getenv("QDRANT_URL"),
         api_key=os.getenv("QDRANT_API_KEY"),
         timeout=10,
+        check_compatibility=False,
     )
+
 
     embeddings = OpenAIEmbeddings(
         model="text-embedding-3-large",

@@ -12,7 +12,10 @@ KEY CONCURRENCY DESIGN:
 import os
 import time
 import asyncio
+from dotenv import load_dotenv
+from interakt import send_text_message_async, assign_chat_to_agent_async
 from chat_state import reset_follow_up_timer, arm_followup_timer
+
 from chat_history import (
     save_message, get_recent_history,
     save_message_async, get_recent_history_async
