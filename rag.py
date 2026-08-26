@@ -41,7 +41,7 @@ try:
     )
 
     retriever = db.as_retriever(
-        search_kwargs={"k": 6}
+        search_kwargs={"k": 8}
     )
     print("[rag.py] Qdrant vector DB connected successfully")
 except Exception as e:
@@ -179,12 +179,12 @@ def _build_retrieval_query(question: str, chat_history: list = None) -> str:
                 return f"{content[:50]} {q_clean}"
 
     # For long noisy multiline/burst inputs (> 8 words), filter out conversational stop words
-    # while preserving ALL meaningful user topic words intact
+    # while preserving ALL meaningful user topic words intact (teacher names, locations, qualifications, fees)
     if len(words) > 8:
         fillers = {"mujhe", "yhaa", "pr", "koi", "bhii", "and", "bhi", "se", "ka", "ki", "ke", "hai", "hu", "mera", "meri", "chahiye", "karne", "karna", "krna", "batao", "sir", "mam", "ma'am", "ji"}
         clean_words = [w for w in words if w not in fillers]
         if len(clean_words) >= 2:
-            return " ".join(clean_words[:10])
+            return " ".join(clean_words)
 
     return q_clean
 

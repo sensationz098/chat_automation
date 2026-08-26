@@ -419,6 +419,7 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     """
     # Retrieve current session state for this phone number
     state = get_user_state(phone)
+    prev_stage = state.get("stage") or "NEW"
     # Reset follow-up counter whenever customer is actively chatting
     state["follow_up_count"] = 0
     text_lower = text.lower().strip()
@@ -559,12 +560,6 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
             # Explicit profile/both done
             "profile created", "profile done", "profile complete", "created profile",
             "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
-            # Generic completion with action verb
-            "ho gaya", "ho gya", "ho gai", "ho gayi", "ho gyi",
-            "ho geya", "hogaya", "hogya",
-            "kar liya", "kr liya", "kar diya", "kr diya", "krdia", "kardiya",
-            "krliya", "krdiya", "kar li", "kr li",
-            "bana liya", "bna liya", "bana diya", "bna diya",
             "download kar liya", "download kr liya", "install kar liya", "install kr liya",
             "app done", "downloaded", "installed",
             "completed", "complete", "created", "set up", "setup done", "all done",
@@ -579,7 +574,11 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
         if matches_any(text_lower, _EXPLICIT_PROFILE_DONE_KWS):
             is_profile_done = True
         elif not is_disinterest_pending and not is_q and matches_any(text_lower, _AFFIRMATIVE_KWS):
-            is_profile_done = True
+            # Generic affirmative words (haan/yes) ONLY trigger profile completion
+            # if app links were ALREADY sent in a PREVIOUS turn (prev_stage == 'APP_LINK_SENT').
+            # This prevents 'haan' (said in response to a package recommendation) from skipping app links!
+            if prev_stage == "APP_LINK_SENT":
+                is_profile_done = True
 
         if is_profile_done:
             state["app_installed"] = True

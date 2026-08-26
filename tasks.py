@@ -717,7 +717,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # ── Coupon Send ──────────────────────────────────────────────────────────
     # Primary path: stage reached PROFILE_COMPLETED
     # Recovery path: user explicitly asks for coupon after profile is done
-    _COUPON_REQUEST_KWS = ["done", "yes", "profile created", "profile done", "completed", "installed", "downloaded", "haan"]
+    _COUPON_REQUEST_KWS = ["profile created", "profile done", "profile completed", "app downloaded", "app installed", "installed", "downloaded"]
     _is_coupon_request = matches_any(text, _COUPON_REQUEST_KWS)
     _should_send_coupon = (
         (state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"))
