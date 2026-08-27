@@ -261,11 +261,8 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
     print(f"[tasks] Agent requested by {phone}")
     reply = (
         "Connecting you with our support team! 🙏\n\n"
-        "Aap hamare support team ko direct call bhi kar sakte hain:\n"
-        "📞 • Nidhi: 9821791064\n"
-        "📞 • Rachna ji: 8826057446\n"
-        "📞 • Yashwant: 9319760301\n\n"
-        "Humari team WhatsApp par bhi jald hi aapse connect karegi 😊"
+        "Aapki request humari team tak pahunch gayi hai. "
+        "Ek team member aapse jald connect karenge 😊"
     )
 
     agent, agent_index = get_next_agent_email()

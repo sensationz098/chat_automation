@@ -78,12 +78,10 @@ async def extract_slot_llm(text: str, chat_history: list = None) -> dict:
         f"Valid packages: {list(VALID_PACKAGES.keys())}\n"
         "If the message CLEARLY and UNAMBIGUOUSLY selects ONE of these timings and/or "
         "ONE of these packages (any language, phrasing, or typo), return the exact matching "
-        "string from the lists above. If ambiguous, not selected, or requesting an unlisted timing "
-        "(e.g. 11 AM, 9 AM, 1 PM, 2 PM, 3 PM, 8 PM, 9 PM), return null for timing. "
-        "NEVER guess a value or map an unlisted time to an adjacent slot.\n"
+        "string from the lists above. If ambiguous or not selected, return null for that field. "
+        "NEVER guess a value the user did not clearly indicate.\n"
         'Respond ONLY with strict JSON: {"timing": "<value or null>", "package": "<value or null>"}'
     ))
-
     
     last_ai_message = ""
     if chat_history:
@@ -379,5 +377,7 @@ def stream_rag(question: str, chat_history: list = None, state: dict = None):
             return
         print(f"[rag.py] stream_rag error: {e}")
         yield "Sorry, I'm unable to answer your question right now."
+
+
 
 
