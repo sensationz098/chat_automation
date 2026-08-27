@@ -482,8 +482,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         full_welcome = f"{msg1}\n{msg2}\n{msg3}"
-        await save_message_async(phone, "assistant", full_welcome, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", full_welcome)
+        # Fire-and-forget background logging to Supabase and CSV so WhatsApp reply is never delayed
+        asyncio.create_task(save_message_async(phone, "assistant", full_welcome, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", full_welcome))
         return
 
     # Fetch previous state stage before slot extraction ok ok
@@ -510,8 +511,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", reply)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
         return
 
     # Define flags for fresh transitions and confirmations/greetings
@@ -542,8 +544,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         reply = _feedback_request_msg(text)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", reply)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
         return
 
     if state.get("disinterest_asked_feedback"):
@@ -562,8 +565,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-            await log_message_async(phone, "ai", reply)
+            # Fire-and-forget background logging
+            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+            asyncio.create_task(log_message_async(phone, "ai", reply))
             return
         # User shared their reason — fall through to RAG with gentle context hint
         history = list(history) + [{
@@ -586,8 +590,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-            await log_message_async(phone, "ai", reply)
+            # Fire-and-forget background logging
+            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+            asyncio.create_task(log_message_async(phone, "ai", reply))
             return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_ASKED" and (is_fresh_package_asked or is_confirmation or is_greeting):
@@ -598,8 +603,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-            await log_message_async(phone, "ai", reply)
+            # Fire-and-forget background logging
+            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+            asyncio.create_task(log_message_async(phone, "ai", reply))
             return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "TIMING_SELECTED" and not state.get("package") and (is_fresh_timing_selected or is_confirmation or is_greeting):
@@ -613,8 +619,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", reply)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
         return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing") and (is_fresh_package_selected or is_confirmation or is_greeting):
@@ -630,8 +637,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", reply)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
         return
 
 
@@ -712,8 +720,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             combined = discount_reply
 
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", combined, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", combined)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", combined, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", combined))
         return
 
     if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
@@ -732,8 +741,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", reply)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
         return
 
     # ── 1. Explicit Coupon Request / Resend Handler ─────────────────────────
@@ -776,8 +786,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-            await log_message_async(phone, "ai", reply)
+            # Fire-and-forget background logging
+            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+            asyncio.create_task(log_message_async(phone, "ai", reply))
             return
         else:
             # Stage A: User has NOT completed profile yet -> Explain unlock requirement, do NOT leak code
@@ -799,8 +810,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
-            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-            await log_message_async(phone, "ai", reply)
+            # Fire-and-forget background logging
+            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+            asyncio.create_task(log_message_async(phone, "ai", reply))
             return
 
     # ── 2. Primary Coupon Delivery on Profile Confirmation ───────────────────
@@ -825,8 +837,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", reply)
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
         return
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -905,8 +918,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         combined = full_reply + "\n\n" + followup_separate
         print(f"[TIMING] {phone} interakt_send (2-msg): {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", combined, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
+        # Fire-and-forget background logging to Supabase and CSV without blocking user reply
+        asyncio.create_task(save_message_async(phone, "assistant", combined, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query))
     elif sales_followup_q:
         await send_text_message_async(phone, full_reply)
         await asyncio.sleep(1)
@@ -914,14 +928,16 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         combined = full_reply + "\n\n" + sales_followup_q
         print(f"[TIMING] {phone} interakt_send (2-msg + sales_q): {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", combined, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query)
+        # Fire-and-forget background logging to Supabase and CSV without blocking user reply
+        asyncio.create_task(save_message_async(phone, "assistant", combined, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", combined, sources=rag_sources, retrieval_query=rag_retrieval_query))
     else:
         await send_text_message_async(phone, full_reply)
         print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
         latency_sec = round(time.time() - start_time, 2) if start_time else None
-        await save_message_async(phone, "assistant", full_reply, response_time_sec=latency_sec)
-        await log_message_async(phone, "ai", full_reply, sources=rag_sources, retrieval_query=rag_retrieval_query)
+        # Fire-and-forget background logging to Supabase and CSV without blocking user reply
+        asyncio.create_task(save_message_async(phone, "assistant", full_reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", full_reply, sources=rag_sources, retrieval_query=rag_retrieval_query))
 # ---------------------------------------------------------------------------
 # Main processing pipeline (NO per-phone Redis lock — debouncer handles it)
 # ---------------------------------------------------------------------------
@@ -961,12 +977,12 @@ async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
         history = []
     print(f"[TIMING] {phone} history_fetch: {time.perf_counter() - t_hist:.2f}s")
 
-    # 4. Save incoming message
+    # 4. Save incoming message (fire-and-forget in background so it doesn't add latency to processing)
     try:
-        await save_message_async(phone, "user", text)
-        await log_message_async(phone, "user", text)
+        asyncio.create_task(save_message_async(phone, "user", text))
+        asyncio.create_task(log_message_async(phone, "user", text))
     except Exception as e:
-        print(f"[tasks] {phone}: Failed to save message: {e}")
+        print(f"[tasks] {phone}: Failed to schedule message save: {e}")
 
     # 5. Check escalation
     if await is_escalated_async(phone):
