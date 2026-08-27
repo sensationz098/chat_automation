@@ -282,17 +282,41 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
 
         messages.append(HumanMessage(content=user_msg))
 
-        # Call LLM model asynchronously to generate response
-        t_llm = time.perf_counter()
-        try:
-            response = await llm.ainvoke(messages)
-        except Exception:
-            response = await asyncio.to_thread(llm.invoke, messages)
-        print(f"[TIMING] rag LLM call: {time.perf_counter() - t_llm:.2f}s")
+        # ── Issue 4: Transient LLM Rate Limit Retry Handler with Exponential Backoff ──
+        # Seamlessly retries up to 3 times on transient rate limits (429), timeouts, or network spikes
+        max_llm_retries = 3
+        response = None
+        last_llm_err = None
+        for attempt in range(1, max_llm_retries + 1):
+            try:
+                t_llm = time.perf_counter()
+                response = await llm.ainvoke(messages)
+                print(f"[TIMING] rag LLM call (attempt {attempt}): {time.perf_counter() - t_llm:.2f}s")
+                break
+            except Exception as llm_err:
+                last_llm_err = llm_err
+                err_str = str(llm_err).lower()
+                is_transient = any(code in err_str for code in ["429", "rate_limit", "timeout", "timed out", "connection", "overloaded", "server error"])
+                if attempt < max_llm_retries and is_transient:
+                    backoff = 1.0 * (2 ** (attempt - 1))  # 1.0s, 2.0s exponential backoff
+                    print(f"[rag.py] LLM transient error on attempt {attempt}/{max_llm_retries} ({llm_err}). Retrying in {backoff}s...")
+                    await asyncio.sleep(backoff)
+                else:
+                    # Fallback attempt via synchronous thread invocation before giving up
+                    try:
+                        t_llm = time.perf_counter()
+                        response = await asyncio.to_thread(llm.invoke, messages)
+                        print(f"[TIMING] rag LLM sync fallback call: {time.perf_counter() - t_llm:.2f}s")
+                        break
+                    except Exception as final_err:
+                        last_llm_err = final_err
+                        if attempt >= max_llm_retries:
+                            raise final_err
 
         result = response.content.strip()
         print(f"[TIMING] rag TOTAL: {time.perf_counter() - t0:.2f}s")
         return {"reply": result, "sources": sources_text, "retrieval_query": retrieval_query_used}
+
 
     except Exception as e:
         error = str(e).lower()

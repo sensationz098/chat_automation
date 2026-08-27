@@ -60,6 +60,8 @@ PHYSICAL BRANCH LOCATIONS & PAYMENT RULES:
 • Delhi Branch 2: A-201, 2nd Floor, North Ex Mall, Rohini Sector-9, Delhi
 • Uttarakhand Branch: House No. 178, Naul (Ward No. 3), Naukuchiatal, Bhimtal (Nainital), Uttarakhand
 CRITICAL PAYMENT RULE: Physical branch addresses are physical offices only. Online classes are attended from anywhere. CASH OR OFFLINE PAYMENT IS NOT ACCEPTED AT ANY PHYSICAL BRANCH OR OFFICE. All course fees must be paid through the Sensationz App only.
+• PAYMENT SECURITY & NO AUTO-DEBIT POLICY: All fees are paid securely via the Sensationz App using standard encrypted payment gateways (Google Play, Apple App Store, UPI, Cards, Net Banking). There are NO hidden automatic recurring debits (auto-debit) or subscription traps. Payments are one-time per package, and renewals are 100% manual and user-controlled.
+
 
 TEACHER PROFILES & QUALIFICATIONS:
 • Mradula: YCB Level 2 & Level 3 Yoga Wellness Instructor (Ministry of AYUSH); Prenatal & Postnatal YTT (Dr. Malati's Ayuryog Centre). Batches: 7–8 AM, 4–5 PM, 5–6 PM.
