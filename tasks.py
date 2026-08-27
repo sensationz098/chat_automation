@@ -257,30 +257,34 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
 # Agent handoff (async)
 # ---------------------------------------------------------------------------
 async def handle_agent_handoff_async(phone: str, start_time: float = None):
-    """Handles customer request to talk to a human — fully async."""
+    """Handles customer request to talk to a human / call support — fully async."""
     print(f"[tasks] Agent requested by {phone}")
-    reply = "Connecting you with our team now. Someone will be with you shortly!"
+    reply = (
+        "Connecting you with our support team! 🙏\n\n"
+        "Aap hamare support team ko direct call bhi kar sakte hain:\n"
+        "📞 • Nidhi: 9821791064\n"
+        "📞 • Rachna ji: 8826057446\n"
+        "📞 • Yashwant: 9319760301\n\n"
+        "Humari team WhatsApp par bhi jald hi aapse connect karegi 😊"
+    )
 
     agent, agent_index = get_next_agent_email()
     if agent:
         await assign_chat_to_agent_async(phone, agent)
         await send_text_message_async(phone, reply)
         await mark_escalated_async(phone)
-        await log_message_async(phone, "agent", reply)
+        asyncio.create_task(log_message_async(phone, "agent", reply))
         # Send Hinglish summary to the assigned agent's WhatsApp number
         asyncio.create_task(
             send_agent_summary_async(phone, agent_index, escalation_reason="Customer ne 'agent' type kiya")
         )
     else:
-        reply = (
-            "Our team is currently offline, but we've noted your request "
-            "and someone will reach out as soon as they're back online."
-        )
         await send_text_message_async(phone, reply)
 
     latency_sec = round(time.time() - start_time, 2) if start_time else None
     print(f"[TIMING] {phone} agent_handoff TOTAL: {latency_sec}s")
-    await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+    asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+
 
 
 
