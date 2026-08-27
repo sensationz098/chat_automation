@@ -453,7 +453,7 @@ def get_flow_followup(state: dict) -> str:
             return None
         return (
             "\n\nWhich timing would you prefer for your classes?\n"
-            "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
+            "Morning: 5:00-6:00AM, 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
             "Afternoon: 12:00–1:00 PM\n"
             "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
         )
@@ -629,7 +629,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         reply = (
             f"You've selected the {state.get('package')} package.\n\n"
             "Which timing would you prefer for your classes? 😊\n"
-            "Morning: 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
+            "Morning: 5:00–6:00 AM, 6:00–7:00 AM, 7:00–8:00 AM, 8:00–9:00 AM, 10:00–11:00 AM\n"
             "Afternoon: 12:00–1:00 PM\n"
             "Evening: 4:00–5:00 PM, 5:00–6:00 PM, 6:00–7:00 PM, 7:00–8:00 PM"
         )
