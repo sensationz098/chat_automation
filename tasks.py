@@ -642,12 +642,17 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     _DISCOUNT_KWS = [
         "discount", "coupon", "offer", "special", "code",
         "discount code", "coupon code", "kya milega", "kya hoga", "kya discount",
-        "special discount", "special offer", "discount btao", "koi offer",
+        "special discount", "special offer", "discount btao", "koi offer", "kam karo",
+        "ad", "ads", "advertisement", "insta", "instagram", "facebook", "fb", "reel",
+        "ad mein", "ad me", "ads mein", "ads me", "wahan toh", "waha to", "wahan to",
+        "waha toh", "alg price", "alag price", "kam price", "kam tha", "kam btaya",
+        "kam rate", "sasta"
     ]
     _is_discount_query = any(kw in text_lower for kw in _DISCOUNT_KWS)
 
     if _is_discount_query and not state.get("coupon_sent"):
         current_stage = state.get("stage", "NEW")
+        is_ad_mention = any(w in text_lower for w in ["ad", "ads", "advertisement", "insta", "instagram", "facebook", "fb", "reel", "waha", "wahan", "kam", "alag", "alg"])
 
         if current_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
             discount_reply = (
@@ -658,8 +663,19 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
                 "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
             )
             state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
+        elif is_ad_mention:
+            # Dynamic ad pricing explanation — applies universally to any past or future ad campaign
+            discount_reply = (
+                "Haan bilkul! 😊 Ads mein jo promotional / special offer price dikhaya jata hai, "
+                "woh hamare new members ke *welcome discount coupon* ke through hi unlock hota hai 🎁\n\n"
+                "Ye discount paane ke simple steps hain:\n"
+                "1️⃣ Apna timing aur package choose karein\n"
+                "2️⃣ Sensationz App download karein\n"
+                "3️⃣ App mein profile banayein\n"
+                "4️⃣ Yahan *Done* ya *Yes* reply karein — coupon code turant bhej diya jayega!"
+            )
         else:
-            # Early stage — answer discount question, flow follow-up will prompt next step
+            # Early stage — answer general discount question
             discount_reply = (
                 "Haan, aapko ek special *welcome coupon code* milega 🎁\n\n"
                 "Ye coupon aapke course fee mein discount deta hai. Isko paane ke liye:\n"
@@ -668,6 +684,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
                 "3️⃣ App mein profile banayein\n"
                 "4️⃣ Yahan *Done* ya *Yes* reply karein — coupon turant bhej diya jayega!"
             )
+
 
         # Build followup_separate from enrollment flow state.
         # IMPORTANT: If the discount_reply already has the app download instructions
