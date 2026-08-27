@@ -87,7 +87,7 @@ OFFICIAL WELCOME DISCOUNT & AD PRICING POLICY (PERMANENT & CONFIRMED):
     2. Download Sensationz App & create in-app profile.
     3. Reply *Done* or *Yes* here on WhatsApp to receive their instant discount coupon code to apply at checkout.
 • STRICT COUPON CODE PROTECTION RULE:
-  - NEVER reveal or output the literal coupon code string (e.g. "SENSZAPP") in conversational or explanatory replies.
+  - NEVER reveal or output the literal coupon code string (e.g. "YOGA600") in conversational or explanatory replies.
   - Always refer to it descriptively as "aapka special welcome discount code" or "your welcome discount code".
   - The actual code is only delivered automatically after profile completion is confirmed.
 NEVER claim discount, ad offer, or fee information is unconfirmed or unavailable!

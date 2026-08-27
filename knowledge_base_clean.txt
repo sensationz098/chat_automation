@@ -546,25 +546,25 @@ Q: फीस का भुगतान कैसे करें?
 A: फीस का भुगतान केवल Sensationz App के माध्यम से ही किया जा सकता है। Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev | iOS: https://apps.apple.com/us/app/sensationz/id6761418351
 
 Q: Do you have any discount codes or coupons?
-A: Yes! Every new customer gets a special welcome discount coupon code: *SENSZAPP*. Please select your batch timing & package duration, download the Sensationz App, create your profile, then reply *Done* or *Yes* here to receive the code.
+A: Yes! Every new customer gets a special welcome discount coupon code: *YOGA600*. Please select your batch timing & package duration, download the Sensationz App, create your profile, then reply *Done* or *Yes* here to receive the code.
 
 Q: Is there a welcome offer for new students?
-A: Yes, new customers receive a welcome discount coupon: *SENSZAPP*. Select your batch and package, download the app, create your profile, then reply *Done* here to get the code.
+A: Yes, new customers receive a welcome discount coupon: *YOGA600*. Select your batch and package, download the app, create your profile, then reply *Done* here to get the code.
 
-Q: How do I get the SENSZAPP discount code?
-A: 1) Select your batch timing & package duration. 2) Download the Sensationz App & create your profile. 3) Reply *Done* or *Yes* here to receive code *SENSZAPP*.
+Q: How do I get the YOGA600 discount code?
+A: 1) Select your batch timing & package duration. 2) Download the Sensationz App & create your profile. 3) Reply *Done* or *Yes* here to receive code *YOGA600*.
 
 Q: Any first-time signup discount available?
-A: Yes, first-time customers get coupon code *SENSZAPP*. Choose your timing and package, install the app, set up your profile, then reply *Done* here to claim it.
+A: Yes, first-time customers get coupon code *YOGA600*. Choose your timing and package, install the app, set up your profile, then reply *Done* here to claim it.
 
 Q: Koi discount code ya coupon hai kya?
-A: Haan! Har naye customer ko welcome discount coupon code milta hai: *SENSZAPP*. Batch timing & package select kariye, Sensationz App download kariye, profile banaiye, phir yahan *Done* ya *Yes* reply kariye code ke liye.
+A: Haan! Har naye customer ko welcome discount coupon code milta hai: *YOGA600*. Batch timing & package select kariye, Sensationz App download kariye, profile banaiye, phir yahan *Done* ya *Yes* reply kariye code ke liye.
 
-Q: SENSZAPP code kaise milega?
-A: 1) Batch timing & package duration select karein. 2) Sensationz App download karke profile banayein. 3) Yahan *Done* ya *Yes* reply karein code *SENSZAPP* pane ke liye.
+Q: YOGA600 code kaise milega?
+A: 1) Batch timing & package duration select karein. 2) Sensationz App download karke profile banayein. 3) Yahan *Done* ya *Yes* reply karein code *YOGA600* pane ke liye.
 
 Q: क्या कोई डिस्काउंट कोड या कूपन है?
-A: हाँ! हर नए ग्राहक को वेलकम डिस्काउंट कूपन कोड मिलता है: *SENSZAPP*। बैच टाइमिंग और पैकेज चुनें, Sensationz App डाउनलोड करके प्रोफाइल बनाएं, फिर यहां *Done* या *Yes* रिप्लाई करें कोड पाने के लिए।
+A: हाँ! हर नए ग्राहक को वेलकम डिस्काउंट कूपन कोड मिलता है: *YOGA600*। बैच टाइमिंग और पैकेज चुनें, Sensationz App डाउनलोड करके प्रोफाइल बनाएं, फिर यहां *Done* या *Yes* रिप्लाई करें कोड पाने के लिए।
 
 Q: Is there a batch from 5:00 AM to 6:00 AM?
 A: Yes, we have a batch from 5:00 AM to 6:00 AM, taught by Jagriti Mishra.
@@ -2784,7 +2784,7 @@ Q: I've selected my batch and package, what's next?
 A: Great! Please download the Sensationz App and create your profile, then reply *Done* or *Yes* here so we can send you your welcome discount code.
 
 Q: I've downloaded the app, what should I do now?
-A: Please complete your profile in the app, then reply *Done* or *Yes* here and we'll send you your welcome discount code *SENSZAPP*.
+A: Please complete your profile in the app, then reply *Done* or *Yes* here and we'll send you your welcome discount code *YOGA600*.
 
 Q: Do I get a certificate after completing the course?
 A: No, we do not provide certificates for the online yoga course.
