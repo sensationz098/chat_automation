@@ -736,9 +736,74 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await log_message_async(phone, "ai", reply)
         return
 
-    # ── Coupon Send ──────────────────────────────────────────────────────────
-    # Primary path: stage reached PROFILE_COMPLETED
-    # Recovery path: user explicitly asks for coupon after profile is done
+    # ── 1. Explicit Coupon Request / Resend Handler ─────────────────────────
+    # Handles user asking for code ("konsa coupon", "send coupon", "fhrse bjhdo", "kha h")
+    _EXPLICIT_COUPON_ASK_KWS = [
+        "konsa coupon", "konsa code", "kya code", "code kya", "coupon code kya",
+        "send coupon", "send code", "send discount coupon", "code do", "code bhej",
+        "bhejo code", "coupon do", "coupon bhejo", "kaha hai", "kha h", "kaha h",
+        "fhrse bjhdo", "phir se bhejo", "dobara bhejo", "again send", "resend", "resend code",
+        "code nahi mila", "code nhi mila", "code nahi aaya", "code nhi aaya", "where is code",
+        "where is coupon", "give coupon", "give code"
+    ]
+    _is_explicit_coupon_ask = matches_any(text_lower, _EXPLICIT_COUPON_ASK_KWS)
+
+    if _is_explicit_coupon_ask:
+        has_unlocked_coupon = (
+            state.get("coupon_sent")
+            or state.get("profile_created")
+            or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]
+        )
+
+        if has_unlocked_coupon:
+            # Stage B: User already completed profile / unlocked coupon -> Always provide the actual code YOGA600
+            hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe"]
+            has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
+            if has_hindi:
+                reply = (
+                    "Aapka welcome discount coupon code ye raha 🎁\n\n"
+                    "✨ Coupon Code: *YOGA600*\n\n"
+                    "Isko Sensationz App mein checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
+                )
+            else:
+                reply = (
+                    "Here is your welcome discount coupon code 🎁\n\n"
+                    "✨ Coupon Code: *YOGA600*\n\n"
+                    "Please enter this code during checkout in the Sensationz App to activate your discount. See you in class! 🧘‍♀️"
+                )
+            state["coupon_sent"] = True
+            arm_followup_timer(state, topic="coupon resend")
+            await save_user_state_async(phone, state)
+            await send_text_message_async(phone, reply)
+            latency_sec = round(time.time() - start_time, 2) if start_time else None
+            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+            await log_message_async(phone, "ai", reply)
+            return
+        else:
+            # Stage A: User has NOT completed profile yet -> Explain unlock requirement, do NOT leak code
+            if state["stage"] in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+                reply = (
+                    "Aapka special welcome discount coupon code app mein profile banane ke baad unlock hota hai 🎁\n\n"
+                    "1️⃣ Sensationz App download karke profile banayein\n"
+                    "2️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
+                    "Aur main turant aapka coupon code yahan bhej dunga!\n\n"
+                    "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+                    "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
+                )
+            else:
+                reply = (
+                    "Aapka special welcome discount coupon code app mein profile banane ke baad unlock hota hai 🎁\n\n"
+                    "Isko paane ke liye apna timing aur package choose karein, app download karke profile banayein, aur yahan *Done* reply karein!"
+                )
+            arm_followup_timer(state, topic=text)
+            await save_user_state_async(phone, state)
+            await send_text_message_async(phone, reply)
+            latency_sec = round(time.time() - start_time, 2) if start_time else None
+            await save_message_async(phone, "assistant", reply, response_time_sec=latency_sec)
+            await log_message_async(phone, "ai", reply)
+            return
+
+    # ── 2. Primary Coupon Delivery on Profile Confirmation ───────────────────
     _COUPON_REQUEST_KWS = ["profile created", "profile done", "profile completed", "app downloaded", "app installed", "installed", "downloaded"]
     _is_coupon_request = matches_any(text, _COUPON_REQUEST_KWS)
     _should_send_coupon = (
@@ -746,12 +811,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         or (_is_coupon_request and state.get("profile_created") and not state.get("coupon_sent"))
     )
 
-
     if _should_send_coupon:
         reply = (
             "🎉 Welcome to the Sensationz family! 🌸\n"
             "Your app setup and profile are complete.\n\n"
-            "🎁 Your welcome coupon code is: *SENSZAPP*\n\n"
+            "🎁 Your welcome coupon code is: *YOGA600*\n\n"
             "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
         )
         state["coupon_sent"] = True
@@ -765,6 +829,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await log_message_async(phone, "ai", reply)
         return
     # ─────────────────────────────────────────────────────────────────────────
+
 
 
     # --- Genuine question / off-flow topic — goes to RAG ---
