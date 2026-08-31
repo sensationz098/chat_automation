@@ -226,10 +226,6 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
         except Exception as e:
             print(f"[target-check] {phone}: state lookup failed ({e})")
 
-    cleaned_text = text.strip().lower()
-    target_text = TARGET_MESSAGE_TEXT.strip().lower()
-    text_matches = (cleaned_text == target_text)
-
     ad_id_matches = False
     if referral_data and isinstance(referral_data, dict) and referral_data:
         source_id = referral_data.get("source_id")
@@ -242,11 +238,11 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
     else:
         print(f"[target-check] {phone}: No referral data")
 
-    if ad_id_matches and text_matches:
-        print(f"[target-check] {phone}: PASS — BOTH match")
+    if ad_id_matches:
+        print(f"[target-check] {phone}: PASS — Ad ID match")
         return True
 
-    print(f"[target-check] {phone}: FAIL — ad={ad_id_matches}, text={text_matches}")
+    print(f"[target-check] {phone}: FAIL — ad={ad_id_matches}")
     return False
 
 
