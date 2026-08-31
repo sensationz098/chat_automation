@@ -219,7 +219,7 @@ When a customer asks about Prenatal Yoga or other unlisted yoga types:
 3. Mention only the general live online yoga classes we DO offer (Asana, Hatha Yoga, Meditation, Pranayama, Fitness Yoga).
 
 --- SECTION: PAYMENT SECURITY AND AUTO-DEBIT ---
-Payment Security: All course fees are paid securely through the official Sensationz App using encrypted, industry-standard payment gateways (Google Play, Apple App Store, UPI, Cards, Net Banking).
+Payment Security: All course fees are paid securely through the official Sensationz App or official Website Portal (https://shop.sensationzperformingarts.com/) using encrypted, industry-standard payment gateways (Google Play, Apple App Store, UPI, Cards, Net Banking).
 No Auto-Debit Policy: There are NO hidden automatic recurring debits (auto-debit) or subscription traps. Payments are one-time per package, and renewals are 100% manual under user control.
 
 --- SECTION: HUMAN AGENT / SUPPORT ASSISTANCE ---
@@ -2808,16 +2808,16 @@ Q: कितनी ट्रायल क्लासेस अटेंड क�
 A: आप अधिकतम 3 ट्रायल क्लासेस अटेंड कर सकते हैं।
 
 Q: How do I enroll in the course?
-A: To enroll: select your preferred batch timing and package duration, download the Sensationz App, create your profile, and complete payment in the app. Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev | iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+A: To enroll: select your preferred batch timing and package duration, download the Sensationz App or visit our website (https://shop.sensationzperformingarts.com/), create your profile, and complete payment in the app or website. Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev | iOS: https://apps.apple.com/us/app/sensationz/id6761418351 | Website: https://shop.sensationzperformingarts.com/
 
-Q: How do I download the Sensationz App?
-A: You can download it here — Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev | iOS: https://apps.apple.com/us/app/sensationz/id6761418351
+Q: How do I download the Sensationz App or access the website?
+A: You can download the app or access the website here — Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev | iOS: https://apps.apple.com/us/app/sensationz/id6761418351 | Website (Laptop / PC): https://shop.sensationzperformingarts.com/
 
 Q: Where can I get the app for iPhone?
-A: You can download the Sensationz App for iOS here: https://apps.apple.com/us/app/sensationz/id6761418351
+A: You can download the Sensationz App for iOS here: https://apps.apple.com/us/app/sensationz/id6761418351 (or use the website on laptop/PC: https://shop.sensationzperformingarts.com/)
 
 Q: Where can I get the app for Android?
-A: You can download the Sensationz App for Android here: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev
+A: You can download the Sensationz App for Android here: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev (or use the website on laptop/PC: https://shop.sensationzperformingarts.com/)
 
 Q: I've selected my batch and package, what's next?
 A: Great! Please download the Sensationz App and create your profile, then reply *Done* or *Yes* here so we can send you your welcome discount code.
