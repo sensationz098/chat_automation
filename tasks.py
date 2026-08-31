@@ -444,7 +444,8 @@ def get_flow_followup(state: dict) -> str:
     if state.get("timing") and not state.get("package"):
         return (
             "\n\nWhich package duration would you like to start with?\n"
-            "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
+            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850)\n\n"
+            "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here 😊"
         )
         
     # 4. If timing is missing
@@ -467,7 +468,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
         msg1 = "Welcome to Sensationz! 🙏 We're excited to help you start your wellness journey."
-        msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month, and full access to class recordings."
+        msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month (offer price: Rs. 500), and full access to class recordings."
         msg3 = "We have batches running throughout the day (Morning, Afternoon, and Evening). Which time slot works best for your schedule?"
 
         await send_text_message_async(phone, msg1)
@@ -613,7 +614,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         reply = (
             f"You've selected the {state.get('timing')} batch.\n\n"
             "Would you like to go ahead and pick a package duration too? 😊\n"
-            "1 Month — ₹700 | 3 Months — ₹1,750 | 6 Months — ₹3,200 | 1 Year — ₹5,000"
+            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850)\n\n"
+            "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here."
         )
         state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
         arm_followup_timer(state, topic=text)
@@ -728,12 +730,12 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
         package = state.get("package") or "3 Months"
-        fee = state.get("fee") or "₹1,750"
+        fee = state.get("fee") or "₹1,750 (Offer Price: ₹600)"
         reply = (
             f"You've selected the {package} package for {fee}.\n\n"
             "To continue, please download the Sensationz App and create your profile. "
             "Once that's done, just reply *Done* or *Yes* here, and I'll send you a special welcome coupon code 🎁 "
-            "that you can use to get a discount on your course fee.\n\n"
+            "that you can use to unlock your offer price during checkout in the app.\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
             "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
         )

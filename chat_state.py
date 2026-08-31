@@ -222,10 +222,7 @@ def save_user_state(phone: str, state: dict):
                 "follow_up_count", "next_followup_due_at", "last_topic"
             }
             db_state = {k: v for k, v in state.items() if k in SUPABASE_STATE_COLUMNS}
-            print(f"[DEBUG-SAVE] {phone}: db_state={db_state}")  # <-- ADD THIS
-
-            result = supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()
-            print(f"[DEBUG-SAVE] {phone}: upsert result={result}") 
+            supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()
         except Exception as e:
             print(f"[chat_state] Supabase save_user_state failed: {e}")
 
@@ -311,7 +308,12 @@ def is_user_asking_question(text: str) -> bool:
         
     return False
 
-VALID_PACKAGES = {"1 Month": "₹700", "3 Months": "₹1,750", "6 Months": "₹3,200", "1 Year": "₹5,000"}
+VALID_PACKAGES = {
+    "1 Month": "₹700 (Offer Price: ₹500)",
+    "3 Months": "₹1,750 (Offer Price: ₹600)",
+    "6 Months": "₹3,200 (Offer Price: ₹2,050)",
+    "1 Year": "₹5,000 (Offer Price: ₹3,850)",
+}
 
 
 GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
@@ -562,33 +564,34 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     # Skip package detection entirely when user is asking a question — prevents
     # sentences like "why it's started with 700" from being misread as a package selection.
     if not is_q:
-        if (text_lower in ["3", "3m", "3 month", "3 months"]
-                or any(p in text_lower for p in ["3 month", "\u20b91,750"])
-                or (_short_text and any(p in text_lower for p in ["1750", "1,750"]))
-                or (is_package_stage and text_lower in ["3", "three"])):
-            state["package"] = "3 Months"
-            state["fee"] = "\u20b91,750"
-            is_package_detected = True
-        elif (text_lower in ["1", "1m", "1 month", "one month"]
-                or any(p in text_lower for p in ["1 month", "\u20b9700"])
-                or (_short_text and "700" in text_lower)
-                or (is_package_stage and text_lower in ["1", "one"])):
-            state["package"] = "1 Month"
-            state["fee"] = "\u20b9700"
-            is_package_detected = True
-        elif (text_lower in ["6", "6m", "6 month", "6 months"]
-                or any(p in text_lower for p in ["6 month", "\u20b93,200"])
-                or (_short_text and any(p in text_lower for p in ["3200", "3,200"]))
-                or (is_package_stage and text_lower in ["6", "six"])):
-            state["package"] = "6 Months"
-            state["fee"] = "\u20b93,200"
-            is_package_detected = True
-        elif (text_lower in ["12", "1 year", "1yr", "1y", "yearly"]
-                or any(p in text_lower for p in ["1 year", "\u20b95,000"])
-                or (_short_text and any(p in text_lower for p in ["5000", "5,000"]))
+        tokens = [w.strip(".,!?:;₹") for w in text_lower.replace(",", "").split()]
+        if (text_lower in ["12", "1 year", "1yr", "1y", "yearly", "annual", "1 saal"]
+                or any(p in text_lower for p in ["1 year", "12 month", "12 months", "\u20b95,000", "\u20b93,850", "\u20b93850", "\u20b95000"])
+                or (_short_text and any(w in tokens for w in ["5000", "3850"]))
                 or (is_package_stage and text_lower in ["12", "twelve"])):
             state["package"] = "1 Year"
-            state["fee"] = "\u20b95,000"
+            state["fee"] = VALID_PACKAGES["1 Year"]
+            is_package_detected = True
+        elif (text_lower in ["6", "6m", "6 month", "6 months", "half yearly", "6 mahine"]
+                or any(p in text_lower for p in ["6 month", "6 months", "\u20b93,200", "\u20b92,050", "\u20b92050", "\u20b93200"])
+                or (_short_text and any(w in tokens for w in ["3200", "2050"]))
+                or (is_package_stage and text_lower in ["6", "six"])):
+            state["package"] = "6 Months"
+            state["fee"] = VALID_PACKAGES["6 Months"]
+            is_package_detected = True
+        elif (text_lower in ["3", "3m", "3 month", "3 months", "quarterly", "3 mahine"]
+                or any(p in text_lower for p in ["3 month", "3 months", "\u20b91,750", "\u20b91750", "\u20b9600"])
+                or (_short_text and any(w in tokens for w in ["1750", "600"]))
+                or (is_package_stage and text_lower in ["3", "three"])):
+            state["package"] = "3 Months"
+            state["fee"] = VALID_PACKAGES["3 Months"]
+            is_package_detected = True
+        elif (text_lower in ["1", "1m", "1 month", "one month", "monthly", "1 mahina"]
+                or any(p in text_lower for p in ["1 month", "\u20b9700", "\u20b9500"])
+                or (_short_text and any(w in tokens for w in ["700", "500"]))
+                or (is_package_stage and text_lower in ["1", "one"])):
+            state["package"] = "1 Month"
+            state["fee"] = VALID_PACKAGES["1 Month"]
             is_package_detected = True
 
     needs_llm_fallback = (

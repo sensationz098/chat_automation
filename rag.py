@@ -63,7 +63,12 @@ VALID_TIMINGS = [
     "5:00–6:00 AM", "6:00–7:00 AM", "7:00–8:00 AM", "8:00–9:00 AM", "10:00–11:00 AM",
     "12:00–1:00 PM", "4:00–5:00 PM", "5:00–6:00 PM", "6:00–7:00 PM", "7:00–8:00 PM"
 ]   
-VALID_PACKAGES = {"1 Month": "₹700", "3 Months": "₹1,750", "6 Months": "₹3,200", "1 Year": "₹5,000"}
+VALID_PACKAGES = {
+    "1 Month": "₹700 (Offer Price: ₹500)",
+    "3 Months": "₹1,750 (Offer Price: ₹600)",
+    "6 Months": "₹3,200 (Offer Price: ₹2,050)",
+    "1 Year": "₹5,000 (Offer Price: ₹3,850)",
+}
 
 async def extract_slot_llm(text: str, chat_history: list = None) -> dict:
     """

@@ -56,11 +56,13 @@ _QUESTION_BANK = [
             "mahanga", "expensive", "costly", "zyada",
         ],
         "hindi": (
-            "700 rupaye mein 1-month plan se shuru kar sakte hain — koi long commitment nahi. "
+            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). "
+            "Offer price app aur welcome coupon ke through applicable hoga. "
             "Kaunsa time aapke liye best rahega, subah ya shaam? 😊"
         ),
         "english": (
-            "You can start with just Rs.700 for 1 month — no long commitment needed. "
+            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). "
+            "Offer price is applicable through the app and welcome coupon. "
             "Which time slot suits you better, morning or evening? 😊"
         ),
     },
@@ -207,8 +209,8 @@ _FALLBACK_BY_STAGE = {
         "english": "How long would you like to join — start with 1 month or go for 3 months? 😊",
     },
     "PACKAGE_ASKED": {
-        "hindi": "Kaunsa package aapke liye best rahega? 1 Month Rs.700 | 3 Months Rs.1,750 | 6 Months Rs.3,200 | 1 Year Rs.5,000 😊",
-        "english": "Which package works best? 1 Month Rs.700 | 3 Months Rs.1,750 | 6 Months Rs.3,200 | 1 Year Rs.5,000 😊",
+        "hindi": "Kaunsa package aapke liye best rahega?\nFees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). Offer price app aur welcome coupon ke through applicable hoga 😊",
+        "english": "Which package works best for you?\nFees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). Offer price is applicable through the app and welcome coupon 😊",
     },
     "PACKAGE_SELECTED": {
         "hindi": "Bahut badiya! App download karne mein koi help chahiye? 😊",
