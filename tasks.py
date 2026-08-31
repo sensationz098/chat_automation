@@ -101,7 +101,7 @@ def _format_for_whatsapp(text: str) -> str:
     return text.strip()
 
 
-TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
+TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello!! Can I get more info on Yoga classes?")
 
 # ── Disinterest keywords (same list as in should_skip_followup) ───────────────
 _DISINTEREST_KWS = [
@@ -244,9 +244,6 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
 
     if ad_id_matches and text_matches:
         print(f"[target-check] {phone}: PASS — BOTH match")
-        return True
-    if text_matches and not referral_data:
-        print(f"[target-check] {phone}: PASS — text matches (no referral)")
         return True
 
     print(f"[target-check] {phone}: FAIL — ad={ad_id_matches}, text={text_matches}")

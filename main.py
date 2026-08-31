@@ -42,7 +42,7 @@ load_dotenv()
 app = FastAPI()
 
 AGENT_TRIGGER_WORDS = ["agent", "human", "talk to someone", "real person", "representative", "support"]
-TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello! Can I get more info on Yoga classes?")
+TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello!! Can I get more info on Yoga classes?")
 FOLLOWUP_SECRET = os.getenv("FOLLOWUP_SECRET")  # set this yourself, any random string
 
 # ---------------------------------------------------------------------------
