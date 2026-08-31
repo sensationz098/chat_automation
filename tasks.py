@@ -434,10 +434,11 @@ def get_flow_followup(state: dict) -> str:
     if state.get("stage") in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
         return (
             "Aapke liye ek special welcome discount code hai 🎁\n\n"
-            "Sirf Sensationz App download karein aur apna profile banayein — "
+            "Sirf Sensationz App download karein ya website par jayein aur apna profile banayein — "
             "uske baad *Done* ya *Yes* reply karein, aur main turant aapka coupon code bhej dunga!\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-             "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+            "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
         )
         
     # 3. If timing is selected but package is missing
@@ -668,10 +669,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         if current_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
             discount_reply = (
                 "Aapke liye ek special welcome discount code hai 🎁\n\n"
-                "Sirf Sensationz App download karein aur apna profile banayein — "
+                "Sirf Sensationz App download karein ya website par jayein aur apna profile banayein — "
                 "uske baad *Done* ya *Yes* reply karein, aur main turant aapka coupon code bhej dunga!\n\n"
                 "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
+                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+                "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
             )
             state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
         elif is_ad_mention:
@@ -733,11 +735,12 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         fee = state.get("fee") or "₹1,750 (Offer Price: ₹600)"
         reply = (
             f"You've selected the {package} package for {fee}.\n\n"
-            "To continue, please download the Sensationz App and create your profile. "
+            "To continue, please download the Sensationz App (or access via website) and create your profile. "
             "Once that's done, just reply *Done* or *Yes* here, and I'll send you a special welcome coupon code 🎁 "
-            "that you can use to unlock your offer price during checkout in the app.\n\n"
+            "that you can use to unlock your offer price during checkout in the app or website.\n\n"
             "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+            "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
         )
         state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
         arm_followup_timer(state, topic=text)
@@ -797,12 +800,14 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             # Stage A: User has NOT completed profile yet -> Explain unlock requirement, do NOT leak code
             if state["stage"] in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
                 reply = (
-                    "Aapka special welcome discount coupon code app mein profile banane ke baad unlock hota hai 🎁\n\n"
-                    "1️⃣ Sensationz App download karke profile banayein\n"
-                    "2️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
+                    "Aapka special welcome discount coupon code app ya website par profile banane ke baad unlock hota hai 🎁\n\n"
+                    "1️⃣ Sensationz App download karein ya website visit karein\n"
+                    "2️⃣ Profile complete karein\n"
+                    "3️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
                     "Aur main turant aapka coupon code yahan bhej dunga!\n\n"
                     "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-                    "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351"
+                    "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+                    "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
                 )
             else:
                 reply = (
