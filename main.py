@@ -164,9 +164,15 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         return {"status": "handed off"}
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        reply = "Hello! Welcome to Sensationz 😊 We offer yoga classes across morning," \
-        "\n afternoon, and evening schedules. Please let us know which time of day you would prefer," \
-        "\n or if you have any specific questions about our yoga courses. We’ll be happy to guide you and help you choose the schedule that best suits your routine."
+        reply = (
+            "Hello! Welcome to Sensationz 😊\n\n"
+            "We offer Online Live Interactive Yoga classes across morning, "
+            "afternoon, and evening schedules.\n\n"
+            "Please let us know which time of day you would prefer, "
+            "or if you have any specific questions about our yoga courses. "
+            "We'll be happy to guide you and help you choose the schedule "
+            "that best suits your routine."
+        )
         await send_text_message_async(phone, reply)
         await save_message_async(phone, "assistant", reply)
         return {"status": "offer sent"}
