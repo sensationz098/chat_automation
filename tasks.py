@@ -462,7 +462,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
         msg1 = "Welcome to Sensationz! 🙏 We're excited to help you start your wellness journey."
-        msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month (offer price: Rs. 500), and full access to class recordings."
+        msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month (offer price: Rs. 500)."
         msg3 = "We have batches running throughout the day (Morning, Afternoon, and Evening). Which time slot works best for your schedule?"
 
         await send_text_message_async(phone, msg1)
