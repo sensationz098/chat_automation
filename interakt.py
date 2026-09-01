@@ -43,11 +43,17 @@ def _headers():
 def _split_phone(phone_with_country_code: str):
     """
     Splits a number like "917003705584" into country code + number.
-    NOTE: assumes a 2-digit country code.
+    Safely handles both 10-digit national numbers and 12-digit international numbers.
     """
-    country_code = "+" + phone_with_country_code[:2]
-    number = phone_with_country_code[2:]
+    clean_phone = str(phone_with_country_code).replace("+", "").strip()
+    if len(clean_phone) == 10:
+        return "+91", clean_phone
+    if len(clean_phone) == 12 and clean_phone.startswith("91"):
+        return "+91", clean_phone[2:]
+    country_code = "+" + clean_phone[:2]
+    number = clean_phone[2:]
     return country_code, number
+
 
 
 
