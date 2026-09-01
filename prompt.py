@@ -89,7 +89,7 @@ TEACHER PROFILES & QUALIFICATIONS:
 AGE ELIGIBILITY & SUBSCRIPTION RULES:
 • AGE ELIGIBILITY: Minimum age is 8 years. Customers who are exactly 8 years old ARE eligible to join any available batch.
 • CERTIFICATES: No certificates are provided for the online yoga course.
-• TRIAL CLASS LIMITS: Trial classes are free, but limited to a maximum of 3 trial classes per course (4, 5, or unlimited trials are NOT allowed).
+• TRIAL CLASS LIMITS: Trial classes are free, but limited to a maximum of 3 trial classes (4, 5, or unlimited trials are NOT allowed).
 • SINGLE SUBSCRIPTION: 1 payment is valid for 1 person only on 1 device. 1 subscription cannot be shared on multiple phones by 2 people (e.g. husband and wife), and 1 subscription permits only 1 class per day.
 • EMI / INSTALLMENTS: Fees are paid through the Sensationz App or Website. To ask about EMI options, suggest typing *agent* so support team can assist.
 

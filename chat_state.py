@@ -326,7 +326,8 @@ CONFIRMATION_WORDS = [
 def _detect_timing(text_lower: str) -> tuple:
     """
     Comprehensive timing detection supporting all user typing styles:
-    Hindi 'X se Y', compact 'XYam', 'X to Y am/pm', 'X-Y am/pm', 'Xam/Xpm'.
+    Hindi 'X se Y', compact 'XYam', 'X to Y am/pm', 'X-Y am/pm', 'Xam/Xpm',
+    'morning X', 'subah X', 'evening X', 'shaam X', 'night X'.
     Returns: (timing_str or None, is_ambiguous: bool, ambiguous_range: str)
     """
     t = text_lower
@@ -341,135 +342,169 @@ def _detect_timing(text_lower: str) -> tuple:
     # If user explicitly asks for batch ranges that do not exist (e.g. 11-12, 1-2, 2-3, 3-4, 8-9 PM, 9-10, 10-11 PM),
     # return None so slot extraction NEVER locks it in, allowing RAG to explain it is unavailable.
     unsupported_patterns = [
+        # 11:00 AM - 12:00 PM / 11:00 AM
         r"(?<![0-9])11\s*(?:to|-|se|\s)\s*12\b",
         r"(?<![0-9])11\s*:\s*00\s*(?:to|-|se|\s)\s*12\s*:\s*00\b",
-        r"(?<![0-9])11se12",
-        r"(?<![0-9])11to12",
-        r"(?<![0-9])11-12",
+        r"\b11se12\b",
+        r"\b11to12\b",
+        r"\b11-12\b",
+        r"(?<![0-9])11\s*am\b",
+        r"(?<![0-9])11\s*(?:baje|bje|ka\s*batch)\b",
+        r"\bgyara(?:h)?\s*baje\b",
+
+        # 1:00 PM - 2:00 PM / 1:00 PM
         r"(?<![0-9])1\s*(?:to|-|se|\s)\s*2\b",
+        r"\b1-2\b",
+        r"(?<![0-9])1\s*pm\b",
+        r"(?<![0-9])1\s*(?:baje|bje)\b",
+        r"\bek\s*baje\b",
+
+        # 2:00 PM - 3:00 PM / 2:00 PM
         r"(?<![0-9])2\s*(?:to|-|se|\s)\s*3\b",
+        r"\b2-3\b",
+        r"(?<![0-9])2\s*pm\b",
+        r"(?<![0-9])2\s*(?:baje|bje)\b",
+        r"\bdo\s*baje\b",
+
+        # 3:00 PM - 4:00 PM / 3:00 PM
         r"(?<![0-9])3\s*(?:to|-|se|\s)\s*4\b",
+        r"\b3-4\b",
+        r"(?<![0-9])3\s*pm\b",
+        r"(?<![0-9])3\s*(?:baje|bje)\b",
+        r"\bteen\s*baje\b",
+
+        # 8:00 PM - 9:00 PM / 8:00 PM
         r"(?<![0-9])8\s*(?:to|-|se|\s)\s*9\s*pm\b",
         r"(?<![0-9])8\s*:\s*00\s*(?:to|-|se|\s)\s*9\s*:\s*00\s*pm\b",
-        r"(?<![0-9])8\s*9\s*pm\b",
-        r"(?<![0-9])8se9pm\b",
-        r"(?<![0-9])8to9pm\b",
-        # Unlisted / Unsupported batch times (no classes conducted at these hours)
-        r"(?<![0-9])11\s*(?:to|-|se|\s)\s*12\b",
-        r"(?<![0-9])11\s*:\s*00\s*(?:to|-|se|\s)\s*12\s*:\s*00\b",
-        r"(?<![0-9])11se12\b",
-        r"(?<![0-9])11to12\b",
-        r"(?<![0-9])11-12\b",
-        r"(?<![0-9])11\s*am\b",
-        r"(?<![0-9])11\s*baje\b",
-        r"(?<![0-9])11\s*bje\b",
-        r"(?<![0-9])11\s*ka\s*batch\b",
-        r"(?<![0-9])gyarah\s*baje\b",
-        r"(?<![0-9])gyara\s*baje\b",
-        r"(?<![0-9])8\s*(?:to|-|se|\s)\s*9\s*pm\b",
-        r"(?<![0-9])8-9pm\b",
-        r"(?<![0-9])89pm\b",
+        r"\b8se9pm\b",
+        r"\b8to9pm\b",
+        r"\b8-9pm\b",
+        r"\b89pm\b",
+        r"(?<![0-9])8\s*pm\b",
+
+        # 9:00 - 10:00 (AM or PM) / 9:00 (AM or PM)
         r"(?<![0-9])9\s*(?:to|-|se|\s)\s*10\b",
         r"(?<![0-9])9\s*:\s*00\s*(?:to|-|se|\s)\s*10\s*:\s*00\b",
-        r"(?<![0-9])9se10\b",
-        r"(?<![0-9])9to10\b",
-        r"(?<![0-9])9-10\b",
+        r"\b9se10\b",
+        r"\b9to10\b",
+        r"\b9-10\b",
         r"(?<![0-9])9\s*am\b",
-        r"(?<![0-9])9\s*baje\b",
-        r"(?<![0-9])9\s*bje\b",
-        r"(?<![0-9])nau\s*baje\b",
-        r"(?<![0-9])1\s*(?:to|-|se|\s)\s*2\b",
-        r"(?<![0-9])1-2\b",
-        r"(?<![0-9])1\s*pm\b",
-        r"(?<![0-9])1\s*baje\b",
-        r"(?<![0-9])1\s*bje\b",
-        r"(?<![0-9])ek\s*baje\b",
-        r"(?<![0-9])2\s*(?:to|-|se|\s)\s*3\b",
-        r"(?<![0-9])2-3\b",
-        r"(?<![0-9])2\s*pm\b",
-        r"(?<![0-9])2\s*baje\b",
-        r"(?<![0-9])2\s*bje\b",
-        r"(?<![0-9])do\s*baje\b",
-        r"(?<![0-9])3\s*(?:to|-|se|\s)\s*4\b",
-        r"(?<![0-9])3-4\b",
-        r"(?<![0-9])3\s*pm\b",
-        r"(?<![0-9])3\s*baje\b",
-        r"(?<![0-9])3\s*bje\b",
-        r"(?<![0-9])teen\s*baje\b",
+        r"(?<![0-9])9\s*pm\b",
+        r"(?<![0-9])9\s*(?:baje|bje)\b",
+        r"\bnau\s*baje\b",
+
+        # 10:00 PM - 11:00 PM / 10:00 PM
         r"(?<![0-9])10\s*(?:to|-|se|\s)\s*11\s*pm\b",
         r"(?<![0-9])10\s*:\s*00\s*(?:to|-|se|\s)\s*11\s*:\s*00\s*pm\b",
-        r"(?<![0-9])10se11pm\b",
-        r"(?<![0-9])10to11pm\b",
-        r"(?<![0-9])10-11pm\b",
-        r"(?<![0-9])1011pm\b",
-        r"(?<![0-9])8\s*pm\b",
-        r"(?<![0-9])9\s*pm\b",
+        r"\b10se11pm\b",
+        r"\b10to11pm\b",
+        r"\b10-11pm\b",
+        r"\b1011pm\b",
         r"(?<![0-9])10\s*pm\b",
+
+        # 11:00 PM, 12:00 AM - 4:00 AM
         r"(?<![0-9])11\s*pm\b",
         r"(?<![0-9])12\s*am\b",
         r"(?<![0-9])1\s*am\b",
         r"(?<![0-9])2\s*am\b",
         r"(?<![0-9])3\s*am\b",
         r"(?<![0-9])4\s*am\b",
+        r"(?<![0-9])4\s*(?:to|-|se|\s)\s*5\s*am\b",
     ]
     if any(re_has(p) for p in unsupported_patterns):
         return None, False, ""
 
-
-    # === Priority 1: Explicit range WITH AM (covers 'X se Y am', 'XYam', 'X to Y am', 'X-Y am') ===
-    if has("5 se 6 am", "5se6am", "5 to 6 am", "5to6am", "5-6 am", "5-6am", "5 6 am", "56am", "5:00 am", "subah 5", "5 baje subah"):
+    # === Priority 1: Explicit MORNING / SUBAH / AM ranges & indicators ===
+    # 5:00–6:00 AM
+    if (has("5 se 6 am", "5se6am", "5 to 6 am", "5to6am", "5-6 am", "5-6am", "5 6 am", "56am", "5:00 am", "5:00am", "subah 5", "5 baje subah", "morning 5", "5 morning", "morning 5 am", "5 am morning", "subah 5 baje", "5 bje subah", "subah 5 se 6", "5 to 6 morning", "5-6 morning")
+            or re_has(r"(?<![0-9\-])\b5(?:\s*:\s*00)?\s*am\b")
+            or re_has(r"\b(?:morning|subah)\s*5(?:\s*:\s*00)?(?:\s*am|\s*baje|\s*bje|\b)")
+            or re_has(r"\b5(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:subah|morning)\b")):
         return "5:00–6:00 AM", False, ""
-    if has("6 se 7 am", "6se7am", "6 to 7 am", "6to7am", "6-7 am", "6-7am", "6 7 am", "67am", "6:00 am", "subah 6", "6 baje subah", "morning 6"):
+
+    # 6:00–7:00 AM
+    if (has("6 se 7 am", "6se7am", "6 to 7 am", "6to7am", "6-7 am", "6-7am", "6 7 am", "67am", "6:00 am", "6:00am", "subah 6", "6 baje subah", "morning 6", "6 morning", "morning 6 am", "6 am morning", "subah 6 baje", "6 bje subah", "subah 6 se 7", "6 to 7 morning", "6-7 morning")
+            or re_has(r"(?<![0-9\-])\b6(?:\s*:\s*00)?\s*am\b")
+            or re_has(r"\b(?:morning|subah)\s*6(?:\s*:\s*00)?(?:\s*am|\s*baje|\s*bje|\b)")
+            or re_has(r"\b6(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:subah|morning)\b")):
         return "6:00–7:00 AM", False, ""
-    if has("7 se 8 am", "7se8am", "7 to 8 am", "7to8am", "7-8 am", "7-8am", "7 8 am", "78am", "7:00 am", "subah 7", "7 baje subah", "morning 7"):
+
+    # 7:00–8:00 AM
+    if (has("7 se 8 am", "7se8am", "7 to 8 am", "7to8am", "7-8 am", "7-8am", "7 8 am", "78am", "7:00 am", "7:00am", "subah 7", "7 baje subah", "morning 7", "7 morning", "morning 7 am", "7 am morning", "subah 7 baje", "7 bje subah", "subah 7 se 8", "7 to 8 morning", "7-8 morning")
+            or re_has(r"(?<![0-9\-])\b7(?:\s*:\s*00)?\s*am\b")
+            or re_has(r"\b(?:morning|subah)\s*7(?:\s*:\s*00)?(?:\s*am|\s*baje|\s*bje|\b)")
+            or re_has(r"\b7(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:subah|morning)\b")):
         return "7:00–8:00 AM", False, ""
-    if has("8 se 9 am", "8se9am", "8 to 9 am", "8to9am", "8-9 am", "8-9am", "8 9 am", "89am", "8:00 am", "subah 8", "8 baje subah", "morning 8"):
+
+    # 8:00–9:00 AM
+    if (has("8 se 9 am", "8se9am", "8 to 9 am", "8to9am", "8-9 am", "8-9am", "8 9 am", "89am", "8:00 am", "8:00am", "subah 8", "8 baje subah", "morning 8", "8 morning", "morning 8 am", "8 am morning", "subah 8 baje", "8 bje subah", "subah 8 se 9", "8 to 9 morning", "8-9 morning")
+            or re_has(r"(?<![0-9\-])\b8(?:\s*:\s*00)?\s*am\b")
+            or re_has(r"\b(?:morning|subah)\s*8(?:\s*:\s*00)?(?:\s*am|\s*baje|\s*bje|\b)")
+            or re_has(r"\b8(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:subah|morning)\b")):
         return "8:00–9:00 AM", False, ""
-    if has("10 se 11 am", "10se11am", "10 to 11 am", "10to11am", "10-11 am", "10-11am", "10 11 am", "1011am", "10:00 am", "subah 10", "10 baje subah", "das baje"):
+
+    # 10:00–11:00 AM
+    if (has("10 se 11 am", "10se11am", "10 to 11 am", "10to11am", "10-11 am", "10-11am", "10 11 am", "1011am", "10:00 am", "10:00am", "subah 10", "10 baje subah", "morning 10", "10 morning", "morning 10 am", "10 am morning", "subah 10 baje", "10 bje subah", "das baje", "subah 10 se 11", "10 to 11 morning", "10-11 morning")
+            or re_has(r"(?<![0-9\-])\b10(?:\s*:\s*00)?\s*am\b")
+            or re_has(r"\b(?:morning|subah)\s*10(?:\s*:\s*00)?(?:\s*am|\s*baje|\s*bje|\b)")
+            or re_has(r"\b10(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:subah|morning)\b")):
         return "10:00–11:00 AM", False, ""
 
-    # === Priority 2: Explicit range WITH PM ===
-    if has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "dopahar", "lunch", "baarah baje", "12 baje dopahar", "afternoon", "afternoon batch", "afternoon slot", "afternoon timing", "afternoon class"):
+    # === Priority 2: Explicit AFTERNOON / EVENING / SHAAM / NIGHT / PM ranges & indicators ===
+    # 12:00–1:00 PM
+    if (has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "12:00pm", "dopahar", "lunch", "baarah baje", "12 baje dopahar", "afternoon", "afternoon batch", "afternoon slot", "afternoon timing", "afternoon class")
+            or re_has(r"(?<![0-9\-])\b12(?:\s*:\s*00)?\s*pm\b")
+            or re_has(r"\b(?:afternoon|dopahar)\s*12\b")):
         return "12:00–1:00 PM", False, ""
-    if has("4 se 5 pm", "4se5pm", "4 to 5 pm", "4to5pm", "4-5 pm", "4-5pm", "4 5 pm", "45pm", "4:00 pm", "shaam 4", "4 baje shaam", "evening 4"):
+
+    # 4:00–5:00 PM
+    if (has("4 se 5 pm", "4se5pm", "4 to 5 pm", "4to5pm", "4-5 pm", "4-5pm", "4 5 pm", "45pm", "4:00 pm", "4:00pm", "shaam 4", "4 baje shaam", "evening 4", "4 evening", "evening 4 pm", "4 pm evening", "shaam 4 baje", "4 bje shaam", "night 4 pm", "shaam 4 se 5", "4 to 5 evening", "4-5 evening")
+            or re_has(r"(?<![0-9\-])\b4(?:\s*:\s*00)?\s*pm\b")
+            or re_has(r"\b(?:evening|shaam|night)\s*4(?:\s*:\s*00)?(?:\s*pm|\s*baje|\s*bje|\b)")
+            or re_has(r"\b4(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:shaam|evening|night)\b")):
         return "4:00–5:00 PM", False, ""
-    if has("5 se 6 pm", "5se6pm", "5 to 6 pm", "5to6pm", "5-6 pm", "5-6pm", "5 6 pm", "56pm", "5:00 pm", "shaam 5", "5 baje shaam", "evening 5"):
+
+    # 5:00–6:00 PM
+    if (has("5 se 6 pm", "5se6pm", "5 to 6 pm", "5to6pm", "5-6 pm", "5-6pm", "5 6 pm", "56pm", "5:00 pm", "5:00pm", "shaam 5", "5 baje shaam", "evening 5", "5 evening", "evening 5 pm", "5 pm evening", "shaam 5 baje", "5 bje shaam", "night 5", "night 5 pm", "shaam 5 se 6", "5 to 6 evening", "5-6 evening", "5 to 6 shaam", "5-6 shaam")
+            or re_has(r"(?<![0-9\-])\b5(?:\s*:\s*00)?\s*pm\b")
+            or re_has(r"\b(?:evening|shaam|night)\s*5(?:\s*:\s*00)?(?:\s*pm|\s*baje|\s*bje|\b)")
+            or re_has(r"\b5(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:shaam|evening|night)\b")):
         return "5:00–6:00 PM", False, ""
-    if has("6 se 7 pm", "6se7pm", "6 to 7 pm", "6to7pm", "6-7 pm", "6-7pm", "6 7 pm", "67pm", "6:00 pm", "shaam 6", "6 baje shaam", "evening 6"):
+
+    # 6:00–7:00 PM
+    if (has("6 se 7 pm", "6se7pm", "6 to 7 pm", "6to7pm", "6-7 pm", "6-7pm", "6 7 pm", "67pm", "6:00 pm", "6:00pm", "shaam 6", "6 baje shaam", "evening 6", "6 evening", "evening 6 pm", "6 pm evening", "shaam 6 baje", "6 bje shaam", "night 6", "night 6 pm", "shaam 6 se 7", "6 to 7 evening", "6-7 evening", "6 to 7 shaam", "6-7 shaam")
+            or re_has(r"(?<![0-9\-])\b6(?:\s*:\s*00)?\s*pm\b")
+            or re_has(r"\b(?:evening|shaam|night)\s*6(?:\s*:\s*00)?(?:\s*pm|\s*baje|\s*bje|\b)")
+            or re_has(r"\b6(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:shaam|evening|night)\b")):
         return "6:00–7:00 PM", False, ""
-    if has("7 se 8 pm", "7se8pm", "7 to 8 pm", "7to8pm", "7-8 pm", "7-8pm", "7 8 pm", "78pm", "7:00 pm", "shaam 7", "7 baje shaam", "evening 7"):
+
+    # 7:00–8:00 PM
+    if (has("7 se 8 pm", "7se8pm", "7 to 8 pm", "7to8pm", "7-8 pm", "7-8pm", "7 8 pm", "78pm", "7:00 pm", "7:00pm", "shaam 7", "7 baje shaam", "evening 7", "7 evening", "evening 7 pm", "7 pm evening", "shaam 7 baje", "7 bje shaam", "night 7", "night 7 pm", "shaam 7 se 8", "7 to 8 evening", "7-8 evening", "7 to 8 shaam", "7-8 shaam")
+            or re_has(r"(?<![0-9\-])\b7(?:\s*:\s*00)?\s*pm\b")
+            or re_has(r"\b(?:evening|shaam|night)\s*7(?:\s*:\s*00)?(?:\s*pm|\s*baje|\s*bje|\b)")
+            or re_has(r"\b7(?:\s*:\s*00)?\s*(?:baje|bje)?\s*(?:shaam|evening|night)\b")):
         return "7:00–8:00 PM", False, ""
 
-    # === Priority 3: Single time with explicit AM/PM (using word boundaries to prevent range collisions) ===
-    if re_has(r"(?<![0-9\-])\b6\s*am\b"):
-        return "6:00–7:00 AM", False, ""
-    if re_has(r"(?<![0-9\-])\b7\s*am\b"):
-        return "7:00–8:00 AM", False, ""
-    if re_has(r"(?<![0-9\-])\b8\s*am\b"):
-        return "8:00–9:00 AM", False, ""
-    if re_has(r"(?<![0-9\-])\b10\s*am\b"):
+    # === Priority 3: Unambiguous ranges/times WITHOUT AM/PM (only one slot exists in entire 24h schedule) ===
+    if ("pm" not in t and "night" not in t and "shaam" not in t and "evening" not in t) and (
+        has("10 to 11", "10 se 11", "10-11", "10 11", "10 baje", "10 bje", "das baje") or re_has(r"(?<![0-9])\b10\b")
+    ):
         return "10:00–11:00 AM", False, ""
-    if re_has(r"(?<![0-9\-])\b12\s*pm\b"):
-        return "12:00–1:00 PM", False, ""
-    if re_has(r"(?<![0-9\-])\b4\s*pm\b"):
-        return "4:00–5:00 PM", False, ""
-    if re_has(r"(?<![0-9\-])\b5\s*pm\b"):
-        return "5:00–6:00 PM", False, ""
-    if re_has(r"(?<![0-9\-])\b6\s*pm\b"):
-        return "6:00–7:00 PM", False, ""
-    if re_has(r"(?<![0-9\-])\b7\s*pm\b"):
-        return "7:00–8:00 PM", False, ""
 
-    # === Priority 4: Unambiguous ranges WITHOUT AM/PM (only one slot exists for that pair) ===
-    if ("pm" not in t and "night" not in t and "shaam" not in t and "evening" not in t) and has("10 to 11", "10 se 11", "10-11", "10 11", "10 baje", "das baje"):
-        return "10:00–11:00 AM", False, ""
-    if has("8 to 9", "8 se 9", "8-9"):
+    if ("pm" not in t and "night" not in t and "shaam" not in t and "evening" not in t) and (
+        has("8 to 9", "8 se 9", "8-9", "8 9", "8 baje", "8 bje", "aath baje") or re_has(r"(?<![0-9])\b8\b")
+    ):
         return "8:00–9:00 AM", False, ""
-    if has("4 to 5", "4 se 5", "4-5", "4 baje shaam"):
+
+    if ("am" not in t and "morning" not in t and "subah" not in t) and (
+        has("4 to 5", "4 se 5", "4-5", "4 5", "4 baje", "4 bje", "chaar baje") or re_has(r"(?<![0-9])\b4\b")
+    ):
         return "4:00–5:00 PM", False, ""
-    if has("12 to 1", "12 se 1", "12-1", "12 baje", "dopahar"):
+
+    if has("12 to 1", "12 se 1", "12-1", "12 1", "12 baje", "12 bje", "dopahar") or re_has(r"(?<![0-9])\b12\b"):
         return "12:00–1:00 PM", False, ""
-    # === Priority 5: Ambiguous times & ranges (both AM and PM slots exist — ask user for AM/PM clarification) ===
+
+    # === Priority 4: Ambiguous times & ranges (both AM and PM slots exist — ask user for AM/PM clarification) ===
     if re_has(r"(?<![0-9\-])\b6(?:\s*:\s*00)?(?:\s*baje|\s*bje|\s*se|\s*to|-|\b)"):
         return None, True, "6:00"
     if re_has(r"(?<![0-9\-])\b7(?:\s*:\s*00)?(?:\s*baje|\s*bje|\s*se|\s*to|-|\b)"):
