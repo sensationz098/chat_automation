@@ -103,24 +103,90 @@ def _format_for_whatsapp(text: str) -> str:
 
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello!! Can I get more info on Yoga classes?")
 
-# ── Disinterest keywords (same list as in should_skip_followup) ───────────────
-_DISINTEREST_KWS = [
-    "not interested", "no thanks", "nahi chahiye", "nhi chahiye", "nahi lena",
-    "nhi lena", "interested nahi", "interested nhi", "abhi nahi", "abhi nhi",
-    "mat bhejo", "mat send", "baad mein", "baad mai", "later", "not now",
-    "dont want", "don't want", "nahi karna", "nhi karna", "no need",
-    "zaroorat nahi", "zaroorat nhi", "nahi chahte", "nhi chahte",
-    "nahi join", "nhi join", "join nahi", "join nhi",
-    "not for me", "nahi lete", "nhi lete",
-    # Common typos / alternate spellings
-    "not intersted", "not intrested", "not intrestad",
-    "nai chahiye", "ni chahiye", "no interest",
+# ── Robust Disinterest / Refusal Engine ──────────────────────────────────────
+_DISINTEREST_EXCLUSIONS = [
+    # Polite acknowledgments / pleasantries where negative words are NOT refusals
+    "no problem", "no problems", "no prob", "no issues", "no issue", "no worries", "no worry",
+    "koi nahi", "koi baat nahi", "koi dikkat nahi", "koi issue nahi", "koi problem nahi",
+    "kuch nahi", "kuch nhi",
+    # Expressions of uncertainty (not refusal)
+    "pata nahi", "nahi pata", "pata nhi", "nhi pata",
+    "dont know", "don't know", "do not know", "malum nahi", "maalum nahi",
+]
+
+_STANDALONE_REFUSAL_TOKENS = {
+    "no", "nah", "nope", "na", "naa", "nahi", "nhi", "nai", "ni",
+    "never", "cancel", "stop", "rehne do", "rehn do", "leave it",
+    "chhod do", "chod do", "mat karo", "mat bhejo", "dont", "don't",
+    "khatam", "band karo"
+}
+
+_DISINTEREST_PHRASES = [
+    "not interested", "not intersted", "not intrested", "not intrestad",
+    "no thanks", "no thank you", "nahi chahiye", "nhi chahiye", "nai chahiye", "ni chahiye",
+    "nahi lena", "nhi lena", "interested nahi", "interested nhi", "not for me",
+    "abhi nahi", "abhi nhi", "mat bhejo", "mat send", "baad mein", "baad mai",
+    "not now", "later on", "dont want", "don't want", "do not want",
+    "dont need", "don't need", "do not need", "no need", "not needed",
+    "nahi karna", "nhi karna", "nahi join", "nhi join", "join nahi", "join nhi",
+    "zaroorat nahi", "zaroorat nhi", "zarurat nahi", "zarurat nhi",
+    "nahi chahte", "nhi chahte", "nahi lete", "nhi lete",
+    "no interest", "zero interest", "not looking to", "not looking for",
+    "stop messaging", "stop message", "msg mat karo", "message mat karo",
+    "don't message", "dont message", "please stop", "unsubscribe",
+    "man nahi hai", "mann nahi hai", "mood nahi hai", "mood nhi hai",
+    "bilkul nahi", "bilkul nhi", "dobara mat", "wapas mat",
+    "can't join", "cannot join", "cant join", "not joining",
+    "i will pass", "pass for now", "no yoga", "don't disturb", "dont disturb",
+    "rehne do", "rehn do", "leave it", "chhod do", "chod do", "cancel", "mat karo", "band karo"
 ]
 
 def is_disinterest_signal(text: str) -> bool:
-    """Returns True if the user message is a clear disinterest / refusal signal."""
+    """
+    Robust, context-aware refusal / disinterest detector.
+    Returns True if user explicitly declines or refuses enrollment / class offer.
+    Safely ignores false-positives like 'no problem', 'pata nahi', or slot corrections.
+    """
+    if not text:
+        return False
     t = text.lower().strip()
-    return any(kw in t for kw in _DISINTEREST_KWS)
+
+    # 1. False-positive check: If text contains known non-refusal phrases
+    if any(exc in t for exc in _DISINTEREST_EXCLUSIONS):
+        return False
+
+    # 2. Check if user is specifying/correcting a slot (e.g. "no, evening please", "no 1 month")
+    has_no = bool(re.search(r"\b(?:no|nahi|nhi|nah|nope|na)\b", t))
+    if has_no:
+        has_timing = any(w in t for w in ["morning", "evening", "afternoon", "subah", "shaam", "am", "pm", "batch", "slot"])
+        has_pkg = any(w in t for w in ["1 month", "3 month", "6 month", "1 year", "monthly", "quarterly"])
+        if (has_timing or has_pkg) and len(t.split()) >= 3 and not any(p in t for p in ["nahi chahiye", "not interested", "dont want", "nahi lena"]):
+            return False
+
+    # 3. Clean punctuation to inspect standalone tokens
+    clean_t = re.sub(r"[^\w\s]", "", t).strip()
+    words = clean_t.split()
+
+    # 4. Standalone refusal check (for short replies: "no", "NO", "nah", "nahi ji", "no thanks", etc.)
+    if len(words) <= 3:
+        if clean_t in _STANDALONE_REFUSAL_TOKENS:
+            return True
+        if any(w in _STANDALONE_REFUSAL_TOKENS for w in words):
+            polite_suffixes = {"ji", "please", "plz", "sir", "mam", "maam", "bhai", "yaar", "thanks", "thank", "you", "bye"}
+            other_words = [w for w in words if w not in _STANDALONE_REFUSAL_TOKENS and w not in polite_suffixes]
+            if len(other_words) == 0:
+                return True
+
+    # 5. Phrase check (matches anywhere in message)
+    if any(phrase in t for phrase in _DISINTEREST_PHRASES):
+        return True
+
+    # 6. Regex word-boundary refusal check
+    refusal_pattern = r"\b(?:not\s+interested|no\s+thanks|no\s+need|nahi\s+chahiye|nhi\s+chahiye|nahi\s+lena|nhi\s+lena|dont\s+want|don't\s+want|nahi\s+karna|nhi\s+karna|abhi\s+nahi|abhi\s+nhi|rehne\s+do|rehn\s+do|chhod\s+do|chod\s+do|leave\s+it|cancel)\b"
+    if re.search(refusal_pattern, t):
+        return True
+
+    return False
 
 
 def _feedback_request_msg(user_text: str) -> str:
@@ -151,7 +217,7 @@ def _feedback_request_msg(user_text: str) -> str:
 
 INFO_INTENT_KEYWORDS = [
     # Section 20 mapping
-    "fee", "price", "cost", "charges",
+    "fee", "price", "cost", "charges", "paise", "paisa", "rupaye", "pdnge", "padenge", "lagenge", "lagega", "dene padenge", "dene pdnge",
     "duration",
     "batch", "timing", "schedule", "time slot",
     "teacher", "instructor",
@@ -175,6 +241,8 @@ INFO_INTENT_KEYWORDS = [
 
     # General intent phrases (from your earlier chats)
     "yoga", "sikhna", "seekhna", "learn yoga", "yoga krna",
+    "other course", "other courses", "dance", "kathak", "music", "singing",
+    "drawing", "acting", "aerobics", "zumba", "other classes", "all courses",
     "trust", "fraud", "scam", "genuine", "real company",
     "about company", "location", "branch", "address",
     "social media", "instagram", "facebook", "youtube", "website",
@@ -205,6 +273,21 @@ def get_next_agent_email() -> tuple:
     return agent, index
 
 
+def is_welcome_trigger(text: str) -> bool:
+    """Returns True if the message matches the Yoga Ad trigger message (with tolerance for punctuation)."""
+    t = (text or "").strip().lower()
+    target = TARGET_MESSAGE_TEXT.strip().lower()
+    if t == target:
+        return True
+    t_norm = re.sub(r"[!?. ]+", " ", t).strip()
+    target_norm = re.sub(r"[!?. ]+", " ", target).strip()
+    if t_norm == target_norm:
+        return True
+    if "can i get more info on yoga classes" in t_norm:
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Target ad / message verification
 # ---------------------------------------------------------------------------
@@ -212,7 +295,7 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
     """
     Checks if a message qualifies for bot response.
     1. Already-verified user (state flag) → PASS
-    2. First message: Match exact code '0123456789' in text → PASS
+    2. First message: Match exact code '0123456789' → PASS
     3. Otherwise → FAIL (no reply, no assignment)
     """
     if phone:
@@ -230,7 +313,20 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
         print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Target code '{TARGET_CODE}' matched in message")
         return True
 
-    print(f"[2] 🎯 DECISION : {phone} -> WILL NOT REPLY | Reason: Target code '{TARGET_CODE}' not found in message")
+    # # Match target message (COMMENTED OUT — only code '0123456789' enables AI)
+    # if is_welcome_trigger(text or ""):
+    #     print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Target message '{TARGET_MESSAGE_TEXT}' matched")
+    #     return True
+
+    # # Match referral if present (COMMENTED OUT — only code '0123456789' enables AI)
+    # if referral_data:
+    #     headline = (referral_data.get("headline") or "").lower()
+    #     body = (referral_data.get("body") or "").lower()
+    #     if "yoga" in headline or "yoga" in body:
+    #         print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Yoga referral matched in ad metadata")
+    #         return True
+
+    print(f"[2] 🎯 DECISION : {phone} -> WILL NOT REPLY | Reason: Not a verified target ad/message")
     return False
 
 
@@ -263,69 +359,6 @@ async def handle_agent_handoff_async(phone: str, start_time: float = None):
     latency_sec = round(time.time() - start_time, 2) if start_time else None
     print(f"[TIMING] {phone} agent_handoff TOTAL: {latency_sec}s")
     asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
-
-
-
-
-# ---------------------------------------------------------------------------
-# AI reply pipeline (async — no blocking calls)
-# ---------------------------------------------------------------------------
-# async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
-#     """Fully async AI reply — all I/O is non-blocking."""
-#     t0 = time.perf_counter()
-
-#     # Pre-written reply for ad trigger message
-#     if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-#         reply = "Hi Sir/Mam, Welcome to Sensationz Media and arts, How i can help u?"
-#         t_send = time.perf_counter()
-#         await send_text_message_async(phone, reply)
-#         print(f"[TIMING] {phone} pre-written_send: {time.perf_counter() - t_send:.2f}s")
-#         latency_sec = round(time.time() - start_time, 2) if start_time else None
-#         save_message(phone, "assistant", reply, response_time_sec=latency_sec)
-#         log_message(phone, "ai", reply)
-#         print(f"[TIMING] {phone} pre-written TOTAL: {time.perf_counter() - t0:.2f}s")
-#         return
-
-#     # 1. Slot extraction
-#     t_slots = time.perf_counter()
-#     state = extract_and_update_slots(phone, text)
-#     is_q = is_user_asking_question(text)
-#     print(f"[TIMING] {phone} slot_extraction: {time.perf_counter() - t_slots:.2f}s")
-
-#     # 2. RAG AI reply
-#     t_rag = time.perf_counter()
-#     full_reply = await ask_rag_async(text, chat_history=history, state=state)
-#     full_reply = full_reply.strip()
-#     print(f"[TIMING] {phone} rag_query: {time.perf_counter() - t_rag:.2f}s")
-
-#     # Post-LLM State Transitions
-#     if state.get("stage") == "READY_FOR_APP_LINK":
-#         state["stage"] = "APP_LINK_SENT"
-#     elif state.get("stage") == "PROFILE_COMPLETED" and not state.get("coupon_sent"):
-#         state["coupon_sent"] = True
-#         state["stage"] = "COUPON_SENT"
-
-#     # 4. Low-confidence check
-#     low_conf_triggers = ["unable to process", "unable to answer", "i don't have information", "not sure", "sorry, the ai service"]
-#     if any(trigger in full_reply.lower() for trigger in low_conf_triggers):
-#         state["low_confidence_count"] = state.get("low_confidence_count", 0) + 1
-#     else:
-#         state["low_confidence_count"] = 0
-
-#     if state.get("low_confidence_count", 0) >= 2:
-#         full_reply += "\n\n💬 Would you like to speak directly with our support team? Please reply by typing **'agent'** or call us directly at **9898989898** to resolve your query!"
-
-#     save_user_state(phone, state)
-
-#     # 5. Send reply (async)
-#     t_send = time.perf_counter()
-#     await send_text_message_async(phone, full_reply)
-#     print(f"[TIMING] {phone} interakt_send: {time.perf_counter() - t_send:.2f}s")
-
-#     latency_sec = round(time.time() - start_time, 2) if start_time else None
-#     print(f"[TIMING] {phone} ai_reply TOTAL: {time.perf_counter() - t0:.2f}s (wall={latency_sec}s)")
-#     save_message(phone, "assistant", full_reply, response_time_sec=latency_sec)
-#     log_message(phone, "ai", full_reply)
 
 
 def is_info_intent(text: str) -> bool:
@@ -430,13 +463,17 @@ def _strip_trailing_questions(text: str) -> str:
 
 
 def get_flow_followup(state: dict) -> str:
-    # 1. If enrollment completed or trial mode active
+    # 1. If enrollment completed, coupon sent, trial mode active, or profile created
     if (state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT", "TRIAL_STEPS_SENT", "TRIAL_REQUESTED"]
-            or state.get("coupon_sent") or state.get("wants_trial")):
+            or state.get("coupon_sent") or state.get("wants_trial") or state.get("profile_created")):
         return None
-        
-    # 2. If app links are sent or ready for app link
-    if state.get("stage") in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+
+    # 2. If app links have already been sent, do NOT repeat them
+    if state.get("stage") == "APP_LINK_SENT":
+        return None
+
+    # 3. If ready for app link (first time only)
+    if state.get("stage") == "READY_FOR_APP_LINK":
         return (
             "Aapke liye ek special welcome discount code hai 🎁\n\n"
             "Sirf Sensationz App download karein ya website par jayein aur apna profile banayein — "
@@ -450,7 +487,7 @@ def get_flow_followup(state: dict) -> str:
     if state.get("timing") and not state.get("package") and not state.get("wants_trial"):
         return (
             "Which package duration would you like to start with? 😊\n"
-            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850)\n\n"
+            "Fees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800)\n\n"
             "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here."
         )
         
@@ -467,7 +504,77 @@ def get_flow_followup(state: dict) -> str:
     return None
 
 
-from chat_state import arm_followup_timer, reset_follow_up_timer, reset_user_state_async
+from chat_state import arm_followup_timer, reset_follow_up_timer, reset_user_state_async, is_profile_completed_signal
+
+def is_coupon_request(text: str) -> bool:
+    """Detects if the user is asking to receive or see a coupon code (e.g. 'coupon', 'coupon bjhdo', 'code bhejo')."""
+    t = (text or "").lower().strip()
+    words = re.findall(r"\w+", t)
+    coupon_words = ["coupon", "coupons", "copon", "cupon", "kupon"]
+    code_words = ["code", "promo", "voucher"]
+    request_words = [
+        "bhej", "bjh", "send", "do", "de", "dedo", "share", "give", "kahan", "kaha", "kha",
+        "mil", "aaya", "aayi", "resend", "again", "plz", "please", "kya", "konsa", "which",
+        "where", "ab", "now", "daal", "apply", "chahiye", "mang", "milega", "chaiye",
+        "dega", "degi", "doge", "nahi de raha", "nhi de raha", "dega ya nahi", "dega yaa nahi",
+        "dega ki nahi", "kab doge", "dena"
+    ]
+
+    # If any coupon word is present in the text (e.g. "coupon", "coupon bjhdo", "coupon ab?")
+    if any(cw in words for cw in coupon_words) or any(cw in t for cw in coupon_words):
+        return True
+
+    # If asking for "code" or "discount code"
+    if any(cw in words for cw in code_words) or any(cw in t for cw in code_words):
+        if any(rw in t for rw in request_words) or len(words) <= 3:
+            return True
+
+    _EXPLICIT_KWS = [
+        "konsa coupon", "konsa code", "kya code", "code kya", "coupon code kya",
+        "send coupon", "send code", "send discount coupon", "code do", "code bhej",
+        "bhejo code", "coupon do", "coupon bhejo", "kaha hai", "kha h", "kaha h",
+        "fhrse bjhdo", "phir se bhejo", "dobara bhejo", "again send", "resend", "resend code",
+        "code nahi mila", "code nhi mila", "code nahi aaya", "code nhi aaya", "where is code",
+        "where is coupon", "give coupon", "give code", "coupon code", "discount code", "code please",
+        "tu coupon dega ya nahi", "tu coupon dega yaa nahi", "coupon dega ya nahi", "coupon dega ya nhi",
+        "coupon dega yaa nhi", "coupon code bhejo", "discount code bhejo", "ab coupon do"
+    ]
+    return any(kw in t for kw in _EXPLICIT_KWS)
+
+
+def _sanitize_locked_coupons(reply: str, state: dict) -> str:
+    """
+    Ensures coupon codes are NEVER leaked to the customer before profile completion.
+    If the user has not completed their profile / unlocked coupon, any accidental
+    coupon code mentions are sanitized out of the LLM reply.
+    """
+    has_unlocked = bool(
+        state.get("profile_created")
+        or state.get("coupon_sent")
+        or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]
+    )
+    if has_unlocked:
+        return reply
+
+    coupon_patterns = [
+        r"\*?YOGA300\*?", r"\*?YOGA600\*?", r"\*?YOGA1000\*?", r"\*?YOGA1800\*?",
+        r"\*?YOGA500\*?", r"\*?YOGAFIT\*?"
+    ]
+    cleaned = reply
+    leaked = False
+    for pat in coupon_patterns:
+        if re.search(pat, cleaned, re.IGNORECASE):
+            leaked = True
+            # Remove entire lines/bullets containing the code
+            cleaned = re.sub(r"^[ \t]*[\*\-•]?[ \t]*.*?" + pat + r".*?$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
+            # Remove inline mentions
+            cleaned = re.sub(pat, "welcome coupon", cleaned, flags=re.IGNORECASE)
+
+    if leaked:
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        if "profile" not in cleaned.lower() and "done" not in cleaned.lower():
+            cleaned += "\n\n🎁 *(Special welcome discount coupon code app ya website par profile complete karne ke baad yahan receive hoga!)*"
+    return cleaned
 
 async def handle_ai_reply_async(phone: str, text: str, history: list, start_time: float = None):
     t0 = time.perf_counter()
@@ -479,7 +586,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         await send_text_message_async(phone, reply)
         return
 
-    if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
+    if is_welcome_trigger(text):
         msg1 = "Welcome to Sensationz! 🙏 We're excited to help you start your wellness journey."
         msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month (offer price: Rs. 300)."
         msg3 = "We have batches running throughout the day (Morning, Afternoon, and Evening). Which time slot works best for your schedule?"
@@ -538,7 +645,8 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
         # NOTE: 'interested' removed — it matches inside 'not interested'. Use full phrases instead:
         "i am interested", "mujhe interested", "i want to join", "haan", "han",
-        "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
+        "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai",
+        "accha", "acha", "theek", "theek hai", "sahi", "sahi hai", "got it", "understood", "fine"
     ]
     is_greeting = matches_any(text_lower, GREETING_WORDS)
     # Disinterest takes priority — never let it be treated as confirmation
@@ -576,7 +684,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
                 reply = "Theek hai, samajh gaye! 🙏 Jab bhi mann kare, hum yahaan hain."
             else:
                 reply = "Totally understood! 🙏 We're here whenever you're ready."
-            arm_followup_timer(state, topic=text)
+            reset_follow_up_timer(state)
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
             latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -689,7 +797,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         msg1 = f"You've selected the {state.get('timing')} batch. 👍"
         msg2 = (
             "Which package duration would you like to start with? 😊\n"
-            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850)\n\n"
+            "Fees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800)\n\n"
             "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here."
         )
         state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
@@ -761,131 +869,44 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         asyncio.create_task(log_message_async(phone, "ai", combined))
         return
 
-    # ── 1. Explicit Coupon Request / Resend Handler ─────────────────────────
-    # Handles user asking for code ("konsa coupon", "send coupon", "fhrse bjhdo", "kha h")
-    _EXPLICIT_COUPON_ASK_KWS = [
-        "konsa coupon", "konsa code", "kya code", "code kya", "coupon code kya",
-        "send coupon", "send code", "send discount coupon", "code do", "code bhej",
-        "bhejo code", "coupon do", "coupon bhejo", "kaha hai", "kha h", "kaha h",
-        "fhrse bjhdo", "phir se bhejo", "dobara bhejo", "again send", "resend", "resend code",
-        "code nahi mila", "code nhi mila", "code nahi aaya", "code nhi aaya", "where is code",
-        "where is coupon", "give coupon", "give code"
-    ]
-    _is_explicit_coupon_ask = matches_any(text_lower, _EXPLICIT_COUPON_ASK_KWS)
+    # ── Deterministic Coupon Unlock, Resend & Profile Completion Handlers ────
+    profile_just_completed = is_profile_completed_signal(text, state)
+    if profile_just_completed and not state.get("profile_created"):
+        state["app_installed"] = True
+        state["profile_created"] = True
+        state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
 
-    if _is_explicit_coupon_ask:
-        has_unlocked_coupon = (
-            state.get("coupon_sent")
-            or state.get("profile_created")
-            or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]
-        )
+    _is_explicit_coupon_ask = is_coupon_request(text_lower)
 
-        if has_unlocked_coupon:
-            # Stage B: User already completed profile / unlocked coupon -> Provide duration-specific code (YOGA300 for 1M, YOGA600 for 3M, YOGA1000 for 6M, YOGA1800 for 1Y)
-            pkg = state.get("package") or ""
-            pkg_lower = pkg.lower()
-            is_1_month = "1 month" in pkg_lower or "one month" in pkg_lower
-            is_3_month = "3 month" in pkg_lower or "three month" in pkg_lower
-            is_6_month = "6 month" in pkg_lower or "six month" in pkg_lower
-            is_1_year = "1 year" in pkg_lower or "12 month" in pkg_lower or "one year" in pkg_lower or "yearly" in pkg_lower
+    hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe", "konsa", "dega", "nhi", "nahi", "bhai", "dena"]
+    has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
 
-            hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe", "konsa"]
-            has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
-
-            if is_1_month:
-                code = "YOGA300"
-                pkg_name = "1 Month"
-            elif is_3_month:
-                code = "YOGA600"
-                pkg_name = "3 Months"
-            elif is_6_month:
-                code = "YOGA1000"
-                pkg_name = "6 Months"
-            elif is_1_year:
-                code = "YOGA1800"
-                pkg_name = "1 Year"
-            else:
-                code = None
-                pkg_name = None
-
-            if code:
-                if has_hindi:
-                    reply = (
-                        "Aapka welcome discount coupon code ye raha 🎁\n\n"
-                        f"✨ Coupon Code: *{code}* ({pkg_name} package ke liye)\n\n"
-                        "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
-                    )
-                else:
-                    reply = (
-                        "Here is your welcome discount coupon code 🎁\n\n"
-                        f"✨ Coupon Code: *{code}* (for {pkg_name} package)\n\n"
-                        "Please enter this code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️"
-                    )
-            else:
-                if has_hindi:
-                    reply = (
-                        "Aapke welcome discount coupon codes ye rahe 🎁\n\n"
-                        "• 1 Month duration: *YOGA300*\n"
-                        "• 3 Months duration: *YOGA600*\n"
-                        "• 6 Months duration: *YOGA1000*\n"
-                        "• 1 Year duration: *YOGA1800*\n\n"
-                        "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
-                    )
-                else:
-                    reply = (
-                        "Here are your welcome discount coupon codes 🎁\n\n"
-                        "• 1 Month duration: *YOGA300*\n"
-                        "• 3 Months duration: *YOGA600*\n"
-                        "• 6 Months duration: *YOGA1000*\n"
-                        "• 1 Year duration: *YOGA1800*\n\n"
-                        "Please enter the applicable code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️"
-                    )
-
-            state["coupon_sent"] = True
-            arm_followup_timer(state, topic="coupon resend")
-            await save_user_state_async(phone, state)
-            await send_text_message_async(phone, reply)
-            latency_sec = round(time.time() - start_time, 2) if start_time else None
-            # Fire-and-forget background logging
-            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
-            asyncio.create_task(log_message_async(phone, "ai", reply))
-            return
-        else:
-            # Stage A: User has NOT completed profile yet -> Explain unlock requirement with app links, do NOT leak code
-            reply = (
-                "Aapka special welcome discount coupon code app ya website par profile banane ke baad unlock hota hai 🎁\n\n"
-                "1️⃣ Sensationz App download karein ya website visit karein\n"
-                "2️⃣ Profile complete karein\n"
-                "3️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
-                "Aur main turant aapka coupon code yahan bhej dunga!\n\n"
-                "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
-                "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
-            )
-            state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
-            arm_followup_timer(state, topic=text)
-            await save_user_state_async(phone, state)
-            await send_text_message_async(phone, reply)
-            latency_sec = round(time.time() - start_time, 2) if start_time else None
-            # Fire-and-forget background logging
-            asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
-            asyncio.create_task(log_message_async(phone, "ai", reply))
-            return
-
-    # ── 2. Primary Coupon Delivery on Profile Confirmation ───────────────────
-    _COUPON_REQUEST_KWS = [
-        "profile created", "profile done", "profile completed", "created profile",
-        "profile ban gayi", "profile bana li", "app downloaded", "app installed",
-        "installed", "downloaded", "done", "yes", "haan"
-    ]
-    _is_coupon_request = matches_any(text, _COUPON_REQUEST_KWS)
-    _should_send_coupon = (
-        (state.get("profile_created") and not state.get("coupon_sent"))
-        or (state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"] and not state.get("coupon_sent"))
-        or (_is_coupon_request and not state.get("coupon_sent") and state.get("profile_created"))
+    is_frustrated_coupon_ask = (
+        _is_explicit_coupon_ask
+        or any(w in text_lower for w in ["fraud", "dhokha", "fake", "dega ya nahi", "dega yaa nahi", "dega ki nahi", "kyu nahi de raha", "kyun nahi de raha", "kab doge"])
+    ) and (
+        state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK", "PROFILE_COMPLETED", "COUPON_SENT"]
+        or state.get("profile_created")
+        or profile_just_completed
     )
 
-    if _should_send_coupon:
+    should_unlock_and_send_coupon = (
+        state.get("profile_created")
+        or state.get("coupon_sent")
+        or profile_just_completed
+        or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]
+        or (_is_explicit_coupon_ask and state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK"])
+        or (is_fresh_package_selected and state.get("stage") in ["APP_LINK_SENT", "PROFILE_COMPLETED"])
+        or is_frustrated_coupon_ask
+    )
+
+    if should_unlock_and_send_coupon and (
+        _is_explicit_coupon_ask
+        or profile_just_completed
+        or is_frustrated_coupon_ask
+        or (is_fresh_package_selected and state.get("stage") in ["APP_LINK_SENT", "PROFILE_COMPLETED"])
+        or (state.get("stage") in ["PROFILE_COMPLETED"] and not state.get("coupon_sent"))
+    ):
         pkg = state.get("package") or ""
         pkg_lower = pkg.lower()
         is_1_month = "1 month" in pkg_lower or "one month" in pkg_lower
@@ -894,32 +915,80 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         is_1_year = "1 year" in pkg_lower or "12 month" in pkg_lower or "one year" in pkg_lower or "yearly" in pkg_lower
 
         if is_1_month:
-            code_line = "🎁 Your welcome coupon code for 1 Month is: *YOGA300*"
+            code = "YOGA300"
+            pkg_name = "1 Month"
         elif is_3_month:
-            code_line = "🎁 Your welcome coupon code for 3 Months is: *YOGA600*"
+            code = "YOGA600"
+            pkg_name = "3 Months"
         elif is_6_month:
-            code_line = "🎁 Your welcome coupon code for 6 Months is: *YOGA1000*"
+            code = "YOGA1000"
+            pkg_name = "6 Months"
         elif is_1_year:
-            code_line = "🎁 Your welcome coupon code for 1 Year is: *YOGA1800*"
+            code = "YOGA1800"
+            pkg_name = "1 Year"
         else:
-            code_line = (
-                "🎁 Your welcome coupon codes:\n"
+            code = None
+            pkg_name = None
+
+        if code:
+            code_details_hi = f"✨ Coupon Code: *{code}* ({pkg_name} package ke liye)"
+            code_details_en = f"✨ Coupon Code: *{code}* (for {pkg_name} package)"
+        else:
+            code_details_hi = (
                 "• 1 Month duration: *YOGA300*\n"
                 "• 3 Months duration: *YOGA600*\n"
                 "• 6 Months duration: *YOGA1000*\n"
                 "• 1 Year duration: *YOGA1800*"
             )
+            code_details_en = code_details_hi
 
-        reply = (
-            "🎉 Welcome to the Sensationz family! 🌸\n"
-            "Your app setup and profile are complete.\n\n"
-            f"{code_line}\n\n"
-            "Use this coupon in the app or website to activate your discount. See you in class! 🧘‍♀️✨"
-        )
+        if is_frustrated_coupon_ask:
+            reply = (
+                "Bilkul denge! Hum 100% genuine hain aur daily live yoga classes conduct karte hain 😊\n\n"
+                "Ye raha aapka special welcome discount coupon code 🎁\n\n"
+                f"{code_details_hi}\n\n"
+                "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
+            )
+        elif has_hindi:
+            reply = (
+                "🎉 Sensationz family mein aapka swagat hai! 🌸\n"
+                "Aapka welcome discount coupon code ye raha 🎁\n\n"
+                f"{code_details_hi}\n\n"
+                "Isko Sensationz App ya website checkout par enter karke apply karein aur offer price activate karein. Class mein milte hain! 🧘‍♀️✨"
+            )
+        else:
+            reply = (
+                "🎉 Welcome to the Sensationz family! 🌸\n"
+                "Here is your welcome discount coupon code 🎁\n\n"
+                f"{code_details_en}\n\n"
+                "Please enter this code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️✨"
+            )
+
         state["coupon_sent"] = True
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
-        # No follow-up timer here — flow is complete.
         arm_followup_timer(state, topic="coupon activation")
+        await save_user_state_async(phone, state)
+        await send_text_message_async(phone, reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        # Fire-and-forget background logging
+        asyncio.create_task(save_message_async(phone, "assistant", reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", reply))
+        return
+
+    elif _is_explicit_coupon_ask:
+        # Stage A: User has NOT selected timing/package or reached app links -> Explain unlock requirement with app links
+        reply = (
+            "Aapka special welcome discount coupon code app ya website par profile banane ke baad unlock hota hai 🎁\n\n"
+            "1️⃣ Sensationz App download karein ya website visit karein\n"
+            "2️⃣ Profile complete karein\n"
+            "3️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
+            "Aur main turant aapka coupon code yahan bhej dunga!\n\n"
+            "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+            "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+            "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
+        )
+        state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
+        arm_followup_timer(state, topic=text)
         await save_user_state_async(phone, state)
         await send_text_message_async(phone, reply)
         latency_sec = round(time.time() - start_time, 2) if start_time else None
@@ -943,6 +1012,9 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # only resurface after 2 CONSECUTIVE flagged replies.
     flagged_this_turn = bool(AGENT_SUGGEST_PATTERN.search(full_reply))
     full_reply = AGENT_SUGGEST_PATTERN.sub("", full_reply).strip()
+
+    # Redact / sanitize any leaked coupon codes if user has not completed profile setup
+    full_reply = _sanitize_locked_coupons(full_reply, state)
 
     if flagged_this_turn:
         state["low_confidence_count"] = state.get("low_confidence_count", 0) + 1
@@ -1060,6 +1132,24 @@ async def _execute_pipeline_async(phone: str, text: str, referral: dict = None):
         asyncio.create_task(log_message_async(phone, "user", text))
     except Exception as e:
         pass
+
+    # Developer / Tester control commands
+    cmd = text.strip().lower()
+    if cmd in ["#reset", "/reset", "reset chat", "reset session"]:
+        await reset_user_state_async(phone)
+        reply = "🔄 Session reset successfully! Escalation cleared and AI re-enabled. How can I help you? 😊"
+        await send_text_message_async(phone, reply)
+        print(f"[3] 🔄 ACTION   : {phone} -> Reset session & unescalated")
+        print("="*80 + "\n")
+        return
+    elif cmd in ["#unescalate", "/unescalate", "#bot", "#ai", "#enable", "unescalate"]:
+        from chat_state import clear_escalation_async
+        await clear_escalation_async(phone)
+        reply = "🤖 AI Assistant re-enabled for this number! How can I help you? 😊"
+        await send_text_message_async(phone, reply)
+        print(f"[3] 🤖 ACTION   : {phone} -> Unescalated & AI re-enabled")
+        print("="*80 + "\n")
+        return
 
     # Check escalation
     if await is_escalated_async(phone):

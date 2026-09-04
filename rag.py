@@ -251,39 +251,6 @@ async def ask_rag_async(question: str, chat_history: list = None, state: dict = 
             "4. Reconstruct whether the input is one continued question, multiple separate ones, or a mix — then answer each reconstructed question fully.\n"
             "5. STRICT LANGUAGE MATCHING: Match the language of 'Customer's Current Reply'. If English, reply ONLY in pure English (0% Hindi/Hinglish). If Hinglish, reply in Hinglish. If Hindi, reply in Hindi."
         )
-        # ── FULL AI PAYLOAD DEBUG ──────────────────────────────────────────
-        try:
-            sep = "=" * 60
-            history_formatted = "\n".join(
-                f"  [{t.get('role','?').upper()}]: {t.get('content','')}"
-                for t in (chat_history or [])
-            ) or "  (none)"
-            context_formatted = "\n".join(
-                f"  [CHUNK {i+1}]:\n{doc.page_content}"
-                for i, doc in enumerate(docs)
-            ) if docs else "  (no chunks retrieved)"
-            debug_text = (
-                f"\n{sep}\n"
-                f"SAARE DETAILS JO AI KO JAARI H WO YE H :\n"
-                f"{sep}\n"
-                f"[1] STAGE       : {state.get('stage') if state else 'N/A'}\n"
-                f"[2] USER MSG    : {question}\n"
-                f"[3] AI LAST MSG : {last_ai_message}\n"
-                f"[4] RETRIEVAL Q : {retrieval_query_used}\n"
-                f"\n[5] QDRANT CHUNKS ({len(docs)} fetched):\n{context_formatted}\n"
-                f"\n[6] CHAT HISTORY ({len(chat_history or [])} turns):\n{history_formatted}\n"
-                f"\n[7] SYSTEM PROMPT (FULL):\n{sys_prompt_content}\n"
-                f"\n[8] FULL USER_MSG TO LLM:\n{user_msg}\n"
-                f"{sep}\n"
-            )
-            # Safe print that won't crash on Windows consoles with limited charsets
-            try:
-                print(debug_text)
-            except UnicodeEncodeError:
-                print(debug_text.encode('utf-8', errors='replace').decode('ascii', errors='replace'))
-        except Exception as pe:
-            print(f"[rag.py] Debug print notice: {pe}")
-        # ──────────────────────────────────────────────────────────────────
 
         messages.append(HumanMessage(content=user_msg))
 

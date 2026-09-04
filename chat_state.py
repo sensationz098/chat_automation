@@ -308,6 +308,7 @@ def is_user_asking_question(text: str) -> bool:
     strong_question_keywords = [
         "price", "prices", "pricing", "cost", "costs", "costly", "expensive", 
         "fee", "fees", "charge", "charges", "rate", "rates", "rupee", "rupees", "rs",
+        "paise", "paisa", "rupaye", "rupay", "dene", "pdnge", "padenge", "lagenge", "lagega", "lagte",
         "pay", "payment", "payments", "refund", "refunds",
         "discount", "discounts", "offer", "offers", "coupon", "coupons",
         "syllabus", "curriculum", "timing", "timings", "schedule", "schedules",
@@ -356,7 +357,8 @@ GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good 
 CONFIRMATION_WORDS = [
     "yes", "yeah", "yep", "sure", "ok", "okay", "enroll", "join",
     "interested", "i want to join", "haan", "han",
-    "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai"
+    "karna hai", "kar do", "haan ji", "proceed", "done", "thik", "thik hai",
+    "accha", "acha", "theek", "theek hai", "sahi", "sahi hai", "got it", "understood", "fine"
 ]
 
 def _detect_timing(text_lower: str) -> tuple:
@@ -488,9 +490,10 @@ def _detect_timing(text_lower: str) -> tuple:
 
     # === Priority 2: Explicit AFTERNOON / EVENING / SHAAM / NIGHT / PM ranges & indicators ===
     # 12:00–1:00 PM
-    if (has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "12:00pm", "dopahar", "lunch", "baarah baje", "12 baje dopahar", "afternoon", "afternoon batch", "afternoon slot", "afternoon timing", "afternoon class")
+    if (has("12 se 1 pm", "12se1pm", "12 to 1 pm", "12to1pm", "12-1 pm", "12-1pm", "12 1 pm", "121pm", "12:00 pm", "12:00pm", "dopahar", "dophar", "dupehar", "dupahar", "lunch", "baarah baje", "12 baje dopahar", "afternoon", "aftern", "aftrnoon", "aftrn", "aftn", "after noon", "afternoon batch", "afternoon slot", "afternoon timing", "afternoon class")
             or re_has(r"(?<![0-9\-])\b12(?:\s*:\s*00)?\s*pm\b")
-            or re_has(r"\b(?:afternoon|dopahar)\s*12\b")):
+            or re_has(r"\b(?:afternoon|aftern|aftrnoon|aftrn|aftn|dopahar|dophar|dupehar|dupahar)\b")
+            or re_has(r"\b(?:afternoon|aftern|dopahar|dophar)\s*12\b")):
         return "12:00–1:00 PM", False, ""
 
     # 4:00–5:00 PM
@@ -551,6 +554,122 @@ def _detect_timing(text_lower: str) -> tuple:
     return None, False, ""
 
 
+
+def is_profile_completed_signal(text: str, state: dict = None) -> bool:
+    """
+    Dynamically and robustly detects if the user indicates that they have created
+    their profile, registered an account, downloaded the app, or completed setup.
+    Handles Hindi, Hinglish, English, slang, and coupled coupon requests.
+    Guards against how-to / future inquiries (e.g. 'profile kaise banaye', 'kese kru').
+    """
+    if not text:
+        return False
+    t = text.lower().strip()
+
+    # 1. Emphatic assertions of prior completion (overrides any rhetorical inquiry in the same sentence)
+    # e.g., "bana to li bhai ab kese banau", "bna to li", "kar to liya", "maine to bana li", "already bana li"
+    EMPHATIC_ASSERTION_PATTERNS = [
+        r"\b(bana|bna)\s+to\s+li\b",
+        r"\b(kar|kr)\s+to\s+(liya|diya)\b",
+        r"\bho\s+to\s+(gaya|gya|gayi|gai)\b",
+        r"\b(already|pehle\s+se|pehle\s+hi)\s+(created|made|done|completed|registered|downloaded|installed|bana|banali|banayi)\b",
+        r"\bmaine\s+to\s+(bana|create)\b",
+    ]
+    if any(re.search(p, t) for p in EMPHATIC_ASSERTION_PATTERNS):
+        return True
+
+    # 2. Check for pure how-to / future questions or imperatives (inquiry/request, not completion)
+    # e.g., "bnalo", "banalo", "bana do", "profile kaise banaye", "kese banau", "app download karni hai"
+    INQUIRY_MARKERS = [
+        r"\b(kaise|kese|how|kyun|kya)\b.*?\b(bana|create|kare|kru|download|register|fill|khol)",
+        r"\b(karna|krna|karni|krni|banana|banani)\s+h(ai)?\b",
+        r"\b(bnalo|banalo|bana\s*do|bna\s*do|kardo|krdo|kar\s*do|kr\s*do)\b",
+        r"\bkese\s+kru\b",
+        r"\bkaise\s+karein?\b",
+        r"\bhelp\s+chahiye\b",
+    ]
+    if any(re.search(p, t) for p in INQUIRY_MARKERS):
+        return False
+
+    # 3. Standalone past-action completion verbs (Hindi/Hinglish/English)
+    # e.g. "bnali", "banali", "bna li", "bana li", "banadi", "kardi", "krdi", "kardiya", "ho gaya", "done", "created"
+    STANDALONE_PAST_VERBS = [
+        r"\b(bnali|banali|bna\s*li|bana\s*li|banadi|bna\s*di|bana\s*diya|bna\s*diya|bana\s*liya|banaliya|bna\s*liya|bnaliya)\b",
+        r"\b(kardi|krdi|kardiya|krdiya|kar\s*li|kr\s*li|kar\s*diya|kr\s*diya)\b",
+        r"\b(ho\s*gaya|hogaya|ho\s*gya|hogya|ban\s*gaya|bangaya|ban\s*gya|bangya|ban\s*gayi|bangayi|ban\s*gai|bangai)\b",
+        r"\b(created|completed|registered|setup\s*done|all\s*done)\b",
+    ]
+    if any(re.search(p, t) for p in STANDALONE_PAST_VERBS):
+        return True
+
+    # 4. Direct noun + past-verb semantic combinations
+    # Noun: profile / account / id / details / app
+    NOUN_RE = r"(profile|profil|profl|account|acnt|acc|id|details?)"
+    PAST_VERB_RE = (
+        r"("
+        r"create\s*k(ar|r)\s*li|create\s*k(ar|r)\s*liya|create\s*k(ar|r)\s*di|create\s*k(ar|r)\s*diya|"
+        r"create\s*kiya|create\s*ho\s*g(aya|ya|yi|i)|created|"
+        r"bana\s*li|banali|bna\s*li|bnali|bana\s*diya|banadi|bna\s*diya|bnadi|bana\s*liya|banaliya|bna\s*liya|bnaliya|"
+        r"banaya|banayi|bna\s*di|banadi|"
+        r"bana\s*chuka|bna\s*chuka|ban\s*chuki|ban\s*chuka|"
+        r"ban\s*gayi|bangayi|ban\s*gai|bangai|ban\s*gya|bangya|ban\s*gaya|bangaya|"
+        r"kar\s*liya|kr\s*liya|kardiya|krdiya|kar\s*li|kr\s*li|karli|krli|kar\s*di|kr\s*di|kardi|krdi|"
+        r"ho\s*g(aya|ya|yi|i)|hog(aya|ya|yi|i)|"
+        r"ready|done|complete|completed|setup|set|registered"
+        r")"
+    )
+
+    if re.search(rf"\b{NOUN_RE}\b.*?{PAST_VERB_RE}", t):
+        return True
+
+    if re.search(rf"{PAST_VERB_RE}.*?\b{NOUN_RE}\b", t):
+        return True
+
+    # App download / install completion
+    APP_NOUN_RE = r"(app|application|sensationz)"
+    APP_PAST_VERB_RE = (
+        r"(download\s*k(ar|r)\s*li|download\s*k(ar|r)\s*liya|download\s*ho\s*g(aya|ya|yi|i)|downloaded|"
+        r"install\s*k(ar|r)\s*li|install\s*k(ar|r)\s*liya|install\s*ho\s*g(aya|ya|yi|i)|installed|"
+        r"khol\s*li|open\s*k(ar|r)\s*li)"
+    )
+    if re.search(rf"\b{APP_NOUN_RE}\b.*?{APP_PAST_VERB_RE}", t) or re.search(rf"{APP_PAST_VERB_RE}.*?\b{APP_NOUN_RE}\b", t):
+        return True
+
+    _EXPLICIT_COMPLETION_PHRASES = [
+        "profile created", "profile done", "profile complete", "created profile",
+        "profile ban gayi", "profile ban gai", "profile bana li", "profile banali",
+        "profile bna li", "profile bnali", "profile ready", "profile set",
+        "account created", "account ban gaya", "account bana liya", "profile setup",
+        "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
+        "download kar liya", "download kr liya", "install kar liya", "install kr liya",
+        "app done", "downloaded", "installed", "app installed", "app downloaded",
+        "setup done", "all done", "done profile created", "profile created done",
+        "done created", "yes created", "id bana li", "id banali", "id ban gayi",
+        "login kar liya", "login ho gaya", "signup kar liya", "sign up ho gaya",
+        "registered", "registered on app", "profile is ready", "profile is done",
+    ]
+    if any(p in t for p in _EXPLICIT_COMPLETION_PHRASES):
+        return True
+
+    # 5. Contextual Affirmations (strictly when in app link / profile creation stage)
+    current_stage = (state.get("stage") if state else "") or ""
+    if current_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
+        _AFFIRMATIVE_SIGNALS = [
+            "done", "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul",
+            "yes done", "haan done", "ok done", "done done", "kar diya", "kardiya",
+            "kr diya", "krdiya", "kar li", "krli", "ho gaya", "hogaya", "ho gya", "hogya",
+            "ban gaya", "bangaya", "ban gayi", "bangayi", "bnali", "banali", "bna li", "bana li",
+            "bna di", "banadi", "kardi", "krdi"
+        ]
+        words = re.findall(r"\w+", t)
+        if any(w in words for w in ["done", "yes", "haan", "bilkul"]):
+            return True
+        if any(p in t for p in _AFFIRMATIVE_SIGNALS):
+            return True
+
+    return False
+
+
 async def extract_and_update_slots(phone: str, text: str, chat_history: list = None) -> dict:
     """
     Analyzes incoming user message, extracts batch timing or package selection,
@@ -570,41 +689,11 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     is_yoga_keyword = any(w in text_lower for w in ["yoga", "yog", "yaga", "yogi", "yoga classes", "online yoga", "yoga details", "yoga course"])
     is_confirmation = matches_any(text_lower, CONFIRMATION_WORDS)
 
-    # --- 0.1 Detect App Install & Profile Completion (High Priority) ---
-    _EXPLICIT_PROFILE_DONE_KWS = [
-        "profile created", "profile done", "profile complete", "created profile",
-        "profile ban gayi", "profile ban gai", "profile bana li", "profile bna li",
-        "profile ready", "profile set", "account created", "profile setup",
-        "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
-        "download kar liya", "download kr liya", "install kar liya", "install kr liya",
-        "app done", "downloaded", "installed", "app installed", "app downloaded",
-        "completed", "complete", "created", "set up", "setup done", "all done",
-        "done profile created", "profile created done", "done created", "yes created"
-    ]
-    _AFFIRMATIVE_KWS = [
-        "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul", "done", "yes done", "haan done", "ok done", "done done"
-    ]
-
+    # --- 0.1 Detect App Install & Profile Completion (High Priority Semantic Engine) ---
     is_disinterest_pending = state.get("disinterest_asked_feedback", False)
-    
-    # Extract last AI message from chat_history or state
-    last_ai = ""
-    if chat_history:
-        for turn in reversed(chat_history):
-            if turn.get("role") in ["assistant", "ai"]:
-                last_ai = (turn.get("content") or "").lower()
-                break
-    if not last_ai and state.get("last_ai_reply"):
-        last_ai = (state.get("last_ai_reply") or "").lower()
-
-    ai_asked_for_profile = any(w in last_ai for w in ["profile", "download", "done", "unlock", "coupon", "app", "website", "sensationz app"])
-
     is_profile_done = False
-    if matches_any(text_lower, _EXPLICIT_PROFILE_DONE_KWS):
-        is_profile_done = True
-    elif not is_disinterest_pending and not is_q and matches_any(text_lower, _AFFIRMATIVE_KWS):
-        if prev_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"] or ai_asked_for_profile or state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
-            is_profile_done = True
+    if not is_disinterest_pending:
+        is_profile_done = is_profile_completed_signal(text, state)
 
     if is_profile_done:
         state["app_installed"] = True

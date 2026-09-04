@@ -57,7 +57,7 @@ _SKIP_STAGES = {"PROFILE_COMPLETED", "COUPON_SENT", "READY_FOR_APP_LINK", "APP_L
 _QUESTION_BANK = [
     {
         "triggers": [
-            "fee", "fees", "price", "cost", "kitna", "charges", "rupee",
+            "fee", "fees", "price", "cost", "kitna", "charges", "rupee", "paise", "paisa", "rupaye",
             "mahanga", "expensive", "costly", "zyada",
         ],
         "hindi": "Kaunsa time slot aapke liye best rahega, subah ya shaam? 😊",
@@ -111,7 +111,7 @@ _QUESTION_BANK = [
             "which batch", "kon sa batch", "kon si timing",
         ],
         "hindi": "Subah ya shaam — kaun sa time aapke daily routine mein fit hoga? 😊",
-        "english": "Morning or evening — which time fits your daily routine better? 😊",
+        "english": "Morning, Afternoon or evening — which time fits your daily routine better? 😊",
     },
     {
         "triggers": [
@@ -231,6 +231,12 @@ def _is_hindi(text: str) -> bool:
 
 def _should_suppress(user_text: str, full_reply: str) -> bool:
     """Returns True if no follow-up question should be added."""
+    try:
+        from tasks import is_disinterest_signal
+        if is_disinterest_signal(user_text):
+            return True
+    except Exception:
+        pass
     u = user_text.lower()
     r = full_reply.lower()
     if any(kw in u for kw in _SUPPRESS_ON_USER_KWS):
@@ -269,12 +275,65 @@ def get_sales_followup(user_text: str, full_reply: str, state: dict) -> Optional
                 "Classes are 100% online via the Sensationz App — attend from anywhere. Do you prefer morning or evening? 😊"
             )
 
-    # 2. Keyword-matched question (first match wins)
+    # 2. Fee / Pricing / Discount Inquiry (Context-aware: if timing is already selected, ask for package duration)
+    fee_kws = [
+        "fee", "fees", "price", "cost", "kitna", "charges", "rupee", "paise", "paisa", "rupaye", "rupay",
+        "payment", "pay", "dene", "pdnge", "padenge", "lagenge", "lagega",
+        "mahanga", "expensive", "costly", "zyada", "discount", "offer", "coupons", "coupon"
+    ]
+    if any(kw in u_lower for kw in fee_kws):
+        if state.get("timing") and not state.get("package"):
+            return (
+                "Aap kitne duration ke liye start karna chahenge — 1 month ya 3 months? 😊"
+                if use_hindi else
+                "Which package duration would you like to start with — 1 month or 3 months? 😊"
+            )
+        elif state.get("timing") and state.get("package"):
+            return (
+                "App download karke profile banane mein koi help chahiye? 😊"
+                if use_hindi else
+                "Need any help downloading the app and creating your profile? 😊"
+            )
+        else:
+            return (
+                "Kaunsa time slot aapke liye best rahega, subah ya shaam? 😊"
+                if use_hindi else
+                "Which time slot suits you better, morning or evening? 😊"
+            )
+
+    # 3. Timing / Schedule Inquiry (Context-aware: if timing is already selected, don't ask again)
+    timing_kws = [
+        "timing", "schedule", "kab", "kaunsa time",
+        "morning", "evening", "subah", "shaam", "raat", "dopahar", "afternoon", "aftern", "aftrnoon",
+        "aftrn", "aftn", "dophar", "dupehar", "dupahar", "mrng", "morng", "evng",
+        "which batch", "kon sa batch", "kon si timing"
+    ]
+    if any(kw in u_lower for kw in timing_kws):
+        if state.get("timing") and not state.get("package"):
+            return (
+                "Aap kitne duration ke liye start karna chahenge — 1 month ya 3 months? 😊"
+                if use_hindi else
+                "Which package duration would you like to start with — 1 month or 3 months? 😊"
+            )
+        elif state.get("timing") and state.get("package"):
+            return (
+                "App download karke profile banane mein koi help chahiye? 😊"
+                if use_hindi else
+                "Need any help downloading the app and creating your profile? 😊"
+            )
+        else:
+            return (
+                "Subah ya shaam — kaun sa time aapke daily routine mein fit hoga? 😊"
+                if use_hindi else
+                "Morning, Afternoon or evening — which time fits your daily routine better? 😊"
+            )
+
+    # 4. Keyword-matched question (first match wins)
     for entry in _QUESTION_BANK:
         if any(kw in u_lower for kw in entry["triggers"]):
             return entry["hindi"] if use_hindi else entry["english"]
 
-    # 3. Stage-aware fallback (skip if stage is in _SKIP_STAGES or wants_trial)
+    # 5. Stage-aware fallback (skip if stage is in _SKIP_STAGES or wants_trial)
     if state.get("stage") in _SKIP_STAGES or state.get("wants_trial"):
         return None
 

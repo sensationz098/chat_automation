@@ -35,7 +35,7 @@ from chat_state import (
     advance_stage,
 )
 from batching import add_message_to_batch_async
-from tasks import is_target_ad_or_message, get_next_agent_email
+from tasks import is_target_ad_or_message, get_next_agent_email, is_welcome_trigger
 
 load_dotenv()
 
@@ -161,18 +161,18 @@ async def _process_fallback(phone: str, text: str, referral: dict, start_time: f
         await save_message_async(phone, "assistant", reply)
         return {"status": "handed off"}
 
-    if text.strip().lower() == TARGET_MESSAGE_TEXT.strip().lower():
-        reply = (
-            "Hello! Welcome to Sensationz 😊\n\n"
-            "We offer Online Live Interactive Yoga classes across morning, "
-            "afternoon, and evening schedules.\n\n"
-            "Please let us know which time of day you would prefer, "
-            "or if you have any specific questions about our yoga courses. "
-            "We'll be happy to guide you and help you choose the schedule "
-            "that best suits your routine."
-        )
-        await send_text_message_async(phone, reply)
-        await save_message_async(phone, "assistant", reply)
+    if is_welcome_trigger(text):
+        msg1 = "Welcome to Sensationz! 🙏 We're excited to help you start your wellness journey."
+        msg2 = "We offer Online Live Interactive Yoga classes (Monday to Friday) with certified expert instructors, beginner-friendly packages starting at just Rs. 700/month (offer price: Rs. 300)."
+        msg3 = "We have batches running throughout the day (Morning, Afternoon, and Evening). Which time slot works best for your schedule?"
+
+        await send_text_message_async(phone, msg1)
+        await asyncio.sleep(1)
+        await send_text_message_async(phone, msg2)
+        await asyncio.sleep(1)
+        await send_text_message_async(phone, msg3)
+        full_welcome = f"{msg1}\n{msg2}\n{msg3}"
+        await save_message_async(phone, "assistant", full_welcome)
         return {"status": "offer sent"}
 
     try:
