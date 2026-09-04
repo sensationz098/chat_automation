@@ -40,8 +40,9 @@ def matches_any(text: str, words: list[str]) -> bool:
         return any(fuzz.ratio(t, w) > 85 for w in words)
     return False
 
-STAGE_ORDER = ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED", "TIMING_SELECTED", "PACKAGE_ASKED",
+STAGE_ORDER = ["NEW", "ENROLL_ASKED", "ENROLL_CONFIRMED", "TIMING_SELECTED", "PACKAGE_ASKED", "TRIAL_REQUESTED", "TRIAL_STEPS_SENT",
                "PACKAGE_SELECTED", "READY_FOR_APP_LINK", "APP_LINK_SENT", "PROFILE_COMPLETED", "COUPON_SENT"]
+
 
 def advance_stage(current: str, proposed: str) -> str:
     cur_idx = STAGE_ORDER.index(current) if current in STAGE_ORDER else 0
@@ -125,7 +126,9 @@ def get_default_state(phone: str) -> dict:
         "app_installed": False,       # Boolean flag indicating if user installed the Sensationz App
         "profile_created": False,     # Boolean flag indicating if user created an in-app profile
         "coupon_sent": False,         # Boolean flag indicating if welcome coupon code was delivered
+        "wants_trial": False,         # Boolean flag indicating if user preferred a demo/trial class first
         "is_escalated": False,        # Escalation flag to hand off to human agent
+
         "is_target_ad": False,        # Whether user verified via secret string (AI enabled)
         "low_confidence_count": 0,     # Consecutive unanswered / low-confidence query count
         "follow_up_count": 0,
@@ -222,6 +225,12 @@ def save_user_state(phone: str, state: dict):
                 "follow_up_count", "next_followup_due_at", "last_topic"
             }
             db_state = {k: v for k, v in state.items() if k in SUPABASE_STATE_COLUMNS}
+            db_state["phone"] = phone
+            if "next_followup_due_at" in db_state and db_state["next_followup_due_at"] is not None:
+                val = db_state["next_followup_due_at"]
+                if isinstance(val, (int, float)):
+                    from datetime import datetime, timezone
+                    db_state["next_followup_due_at"] = datetime.fromtimestamp(val, tz=timezone.utc).isoformat()
             supabase.table("user_session_state").upsert(db_state, on_conflict="phone").execute()
         except Exception as e:
             print(f"[chat_state] Supabase save_user_state failed: {e}")
@@ -534,8 +543,51 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     is_yoga_keyword = any(w in text_lower for w in ["yoga", "yog", "yaga", "yogi", "yoga classes", "online yoga", "yoga details", "yoga course"])
     is_confirmation = matches_any(text_lower, CONFIRMATION_WORDS)
 
-    # Stage 0: Initial Greeting & Enrollment Confirmation Check
-    if state["stage"] in ["NEW", "ENROLL_ASKED"]:
+    # --- 0.1 Detect App Install & Profile Completion (High Priority) ---
+    _EXPLICIT_PROFILE_DONE_KWS = [
+        "profile created", "profile done", "profile complete", "created profile",
+        "profile ban gayi", "profile ban gai", "profile bana li", "profile bna li",
+        "profile ready", "profile set", "account created", "profile setup",
+        "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
+        "download kar liya", "download kr liya", "install kar liya", "install kr liya",
+        "app done", "downloaded", "installed", "app installed", "app downloaded",
+        "completed", "complete", "created", "set up", "setup done", "all done",
+        "done profile created", "profile created done", "done created", "yes created"
+    ]
+    _AFFIRMATIVE_KWS = [
+        "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul", "done", "yes done", "haan done", "ok done", "done done"
+    ]
+
+    is_disinterest_pending = state.get("disinterest_asked_feedback", False)
+    
+    # Extract last AI message from chat_history or state
+    last_ai = ""
+    if chat_history:
+        for turn in reversed(chat_history):
+            if turn.get("role") in ["assistant", "ai"]:
+                last_ai = (turn.get("content") or "").lower()
+                break
+    if not last_ai and state.get("last_ai_reply"):
+        last_ai = (state.get("last_ai_reply") or "").lower()
+
+    ai_asked_for_profile = any(w in last_ai for w in ["profile", "download", "done", "unlock", "coupon", "app", "website", "sensationz app"])
+
+    is_profile_done = False
+    if matches_any(text_lower, _EXPLICIT_PROFILE_DONE_KWS):
+        is_profile_done = True
+    elif not is_disinterest_pending and not is_q and matches_any(text_lower, _AFFIRMATIVE_KWS):
+        if prev_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"] or ai_asked_for_profile or state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
+            is_profile_done = True
+
+    if is_profile_done:
+        state["app_installed"] = True
+        state["profile_created"] = True
+        state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
+    elif any(w in text_lower for w in ["app download", "download ho gaya", "download ho gya", "app download kar"]) and not state.get("profile_created"):
+        state["app_installed"] = True
+
+    # Stage 0: Initial Greeting & Enrollment Confirmation Check (Only if profile not already confirmed)
+    if state["stage"] in ["NEW", "ENROLL_ASKED"] and not state.get("profile_created"):
         has_enroll_intent = (is_confirmation or any(w in text_lower for w in ["price", "fees", "fee", "timing", "timings", "enroll", "join", "classes", "start", "how to", "kaise", "proceed"]))
         if has_enroll_intent:
             state["stage"] = advance_stage(state["stage"], "ENROLL_CONFIRMED")
@@ -548,7 +600,21 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
             state["package"] = None
             state["fee"] = None
 
+    # --- 0.2 Detect Trial / Demo Request Intent ---
+    trial_intent_triggers = [
+        "trial", "demo", "demo class", "trial class", "free trial", "free demo",
+        "pehle trial", "pehle demo", "try class", "trial lena", "demo lena",
+        "after the demo", "after demo", "after trial", "after the trial",
+        "pick a package after", "choose after demo", "decide after demo",
+        "demo ke baad", "trial ke baad", "pehle try"
+    ]
+    if any(t in text_lower for t in trial_intent_triggers) and state.get("stage") not in ["PROFILE_COMPLETED", "COUPON_SENT"]:
+        state["wants_trial"] = True
+        if state.get("stage") not in ["TRIAL_STEPS_SENT", "READY_FOR_APP_LINK", "APP_LINK_SENT"]:
+            state["stage"] = "TRIAL_REQUESTED"
+
     # --- 0.5 Detect Intent to Change / Remove Slots ---
+
     change_kws = ["change", "remove", "galat", "wrong", "dusra", "delete", "nahi chahiye", "cancel"]
     if any(kw in text_lower for kw in change_kws) and state["stage"] not in ["NEW", "PROFILE_COMPLETED", "COUPON_SENT"]:
         changed = False
@@ -657,41 +723,6 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     if state["stage"] == "TIMING_SELECTED" and is_confirmation and not is_q and not state.get("package"):
         state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
 
-
-    # --- 4. Detect App Install & Profile Completion ---
-    # Triggered ONLY when stage is APP_LINK_SENT or READY_FOR_APP_LINK.
-    if state["stage"] in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
-        _EXPLICIT_PROFILE_DONE_KWS = [
-            # Explicit profile/both done
-            "profile created", "profile done", "profile complete", "created profile",
-            "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
-            "download kar liya", "download kr liya", "install kar liya", "install kr liya",
-            "app done", "downloaded", "installed",
-            "completed", "complete", "created", "set up", "setup done", "all done",
-        ]
-        _AFFIRMATIVE_KWS = [
-            "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul", "done"
-        ]
-
-        is_disinterest_pending = state.get("disinterest_asked_feedback", False)
-
-        is_profile_done = False
-        if matches_any(text_lower, _EXPLICIT_PROFILE_DONE_KWS):
-            is_profile_done = True
-        elif not is_disinterest_pending and not is_q and matches_any(text_lower, _AFFIRMATIVE_KWS):
-            # Generic affirmative words (haan/yes) ONLY trigger profile completion
-            # if app links were ALREADY sent in a PREVIOUS turn (prev_stage == 'APP_LINK_SENT').
-            # This prevents 'haan' (said in response to a package recommendation) from skipping app links!
-            if prev_stage == "APP_LINK_SENT":
-                is_profile_done = True
-
-        if is_profile_done:
-            state["app_installed"] = True
-            state["profile_created"] = True
-            state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
-        elif any(w in text_lower for w in ["app download", "download ho gaya", "download ho gya"]) and not state["profile_created"]:
-            # Only app downloaded, profile not yet confirmed
-            state["app_installed"] = True
 
     # Persist updated session state asynchronously
     await save_user_state_async(phone, state)

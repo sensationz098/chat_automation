@@ -42,7 +42,8 @@ _SUPPRESS_ON_REPLY_KWS = [
 ]
 
 # Stages where no sales follow-up is ever added
-_SKIP_STAGES = {"PROFILE_COMPLETED", "COUPON_SENT", "READY_FOR_APP_LINK", "APP_LINK_SENT"}
+_SKIP_STAGES = {"PROFILE_COMPLETED", "COUPON_SENT", "READY_FOR_APP_LINK", "APP_LINK_SENT", "TRIAL_REQUESTED", "TRIAL_STEPS_SENT"}
+
 
 
 # -- Contextual Question Bank -------------------------------------------------
@@ -260,16 +261,8 @@ def get_sales_followup(user_text: str, full_reply: str, state: dict) -> Optional
     """
     Returns a context-aware, stage-sensitive follow-up question to send
     AFTER the bot reply as a separate WhatsApp message, or None if suppressed.
-
-    Args:
-        user_text:   Customer's latest message.
-        full_reply:  Bot's generated RAG reply.
-        state:       Current user session state dict.
-
-    Returns:
-        A follow-up question string, or None.
     """
-    if state.get("stage") in _SKIP_STAGES:
+    if state.get("stage") in _SKIP_STAGES or state.get("wants_trial"):
         return None
 
     if _should_suppress(user_text, full_reply):
@@ -278,15 +271,32 @@ def get_sales_followup(user_text: str, full_reply: str, state: dict) -> Optional
     u_lower = user_text.lower()
     use_hindi = _is_hindi(user_text)
 
-    # 1. Keyword-matched question (first match wins)
+    # 1. Location / where inquiry (Context-aware: don't ask morning/evening if timing is already chosen)
+    location_kws = ["location", "address", "kahan", "where", "branch", "online hai", "offline", "center", "studio", "ghar se"]
+    if any(kw in u_lower for kw in location_kws):
+        if state.get("timing"):
+            return (
+                "Online live class attend karne ke baare mein koi aur sawaal hai? 😊"
+                if use_hindi else
+                "Do you have any questions about attending the online live classes? 😊"
+            )
+        else:
+            return (
+                "Classes 100% online hain Sensationz App par — ghar se hi attend kar sakte hain. Kya aap morning ya evening prefer karenge? 😊"
+                if use_hindi else
+                "Classes are 100% online via the Sensationz App — attend from anywhere. Do you prefer morning or evening? 😊"
+            )
+
+    # 2. Keyword-matched question (first match wins)
     for entry in _QUESTION_BANK:
         if any(kw in u_lower for kw in entry["triggers"]):
             return entry["hindi"] if use_hindi else entry["english"]
 
-    # 2. Stage-aware fallback
+    # 3. Stage-aware fallback
     stage = state.get("stage", "NEW")
     if stage in _FALLBACK_BY_STAGE:
         q = _FALLBACK_BY_STAGE[stage]
         return q["hindi"] if use_hindi else q["english"]
 
     return None
+

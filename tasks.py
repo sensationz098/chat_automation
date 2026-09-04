@@ -212,11 +212,9 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
     """
     Checks if a message qualifies for bot response.
     1. Already-verified user (state flag) → PASS
-    2. First message: BOTH ad ID AND text must match → PASS
+    2. First message: Match exact code '0123456789' in text (Ad ID check temporarily commented out) → PASS
     3. Otherwise → FAIL (no reply, no assignment)
     """
-    TARGET_AD_ID = os.getenv("TARGET_AD_ID")
-
     if phone:
         try:
             state = get_user_state(phone)
@@ -226,23 +224,31 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
         except Exception as e:
             print(f"[target-check] {phone}: state lookup failed ({e})")
 
-    ad_id_matches = False
-    if referral_data and isinstance(referral_data, dict) and referral_data:
-        source_id = referral_data.get("source_id")
-        source_url = referral_data.get("source_url", "")
-        if TARGET_AD_ID and (str(source_id) == str(TARGET_AD_ID) or str(TARGET_AD_ID) in str(source_url)):
-            ad_id_matches = True
-            print(f"[target-check] {phone}: Ad ID MATCH")
-        else:
-            print(f"[target-check] {phone}: Ad ID MISMATCH — source_id='{source_id}' vs TARGET='{TARGET_AD_ID}'")
-    else:
-        print(f"[target-check] {phone}: No referral data")
+    # --- TEMPORARY: Ad ID check commented out ---
+    # TARGET_AD_ID = os.getenv("TARGET_AD_ID")
+    # ad_id_matches = False
+    # if referral_data and isinstance(referral_data, dict) and referral_data:
+    #     source_id = referral_data.get("source_id")
+    #     source_url = referral_data.get("source_url", "")
+    #     if TARGET_AD_ID and (str(source_id) == str(TARGET_AD_ID) or str(TARGET_AD_ID) in str(source_url)):
+    #         ad_id_matches = True
+    #         print(f"[target-check] {phone}: Ad ID MATCH")
+    #     else:
+    #         print(f"[target-check] {phone}: Ad ID MISMATCH — source_id='{source_id}' vs TARGET='{TARGET_AD_ID}'")
+    # else:
+    #     print(f"[target-check] {phone}: No referral data")
+    #
+    # if ad_id_matches:
+    #     print(f"[target-check] {phone}: PASS — Ad ID match")
+    #     return True
 
-    if ad_id_matches:
-        print(f"[target-check] {phone}: PASS — Ad ID match")
+    # --- Match exact code '0123456789' in incoming message ---
+    TARGET_CODE = "0123456789"
+    if TARGET_CODE in (text or ""):
+        print(f"[target-check] {phone}: PASS — Target code '{TARGET_CODE}' matched in message")
         return True
 
-    print(f"[target-check] {phone}: FAIL — ad={ad_id_matches}")
+    print(f"[target-check] {phone}: FAIL — Target code '{TARGET_CODE}' not matched in message='{text}'")
     return False
 
 
@@ -419,8 +425,9 @@ def should_skip_followup(user_text: str, full_reply: str, stage: str) -> bool:
 
 
 def get_flow_followup(state: dict) -> str:
-    # 1. If enrollment completed (coupon sent or profile completed)
-    if state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"] or state.get("coupon_sent"):
+    # 1. If enrollment completed or trial mode active
+    if (state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT", "TRIAL_STEPS_SENT", "TRIAL_REQUESTED"]
+            or state.get("coupon_sent") or state.get("wants_trial")):
         return None
         
     # 2. If app links are sent or ready for app link
@@ -434,8 +441,8 @@ def get_flow_followup(state: dict) -> str:
             "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
         )
         
-    # 3. If timing is selected but package is missing
-    if state.get("timing") and not state.get("package"):
+    # 3. If timing is selected but package is missing (and user is NOT in trial mode)
+    if state.get("timing") and not state.get("package") and not state.get("wants_trial"):
         return (
             "\n\nWhich package duration would you like to start with?\n"
             "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850)\n\n"
@@ -575,9 +582,62 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
                 "End with an open invitation, not a hard sell."
             )
         }]
-    # ── END DISINTEREST CHECK ──
+    # ── TRIAL / DEMO REQUEST HANDLER (Pure procedural requests only; informational queries go to RAG) ──
+    _PURE_TRIAL_BOOKING_KWS = [
+        "trial book", "book trial", "trial lena hai", "demo lena hai", "trial kaise book karein",
+        "trial kaise book kare", "send trial link", "trial link do", "trial link bhejo", "book my trial"
+    ]
+    is_pure_trial_req = (
+        not is_q
+        and not is_info_intent(text)
+        and matches_any(text_lower, _PURE_TRIAL_BOOKING_KWS)
+    )
+    if is_pure_trial_req and state.get("stage") != "TRIAL_STEPS_SENT" and state.get("stage") not in ["PROFILE_COMPLETED", "COUPON_SENT"]:
+        state["wants_trial"] = True
+        state["stage"] = "TRIAL_STEPS_SENT"
+
+        hindi_markers = ["kya", "hai", "mujhe", "batao", "chahiye", "ka", "ki", "ke", "nahi", "haan", "se", "bhi", "kab", "kaise", "kitna", "subah", "shaam", "pehle", "baad"]
+        has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
+        if has_hindi:
+            trial_reply = (
+                "Aap bilkul pehle demo videos dekh sakte hain aur free live trial class attend kar sakte hain! 😊 Har student ko 3 free live trial classes milti hain.\n\n"
+                "🎥 *Sample / Demo Videos:*\n"
+                "• Trainer Suman: https://youtu.be/IiVVdu4NkwI?si=leLgCK40Uo5Qhr0V\n"
+                "• Trainer Mradula: https://youtu.be/vXZ6UtrWpM8?si=WYpuo8Us7xIkXT8n\n"
+                "• Trainer Priya Mathur: https://youtu.be/M2Zh9SaHpX4?si=RXg-HXGI5n_ftxs-\n\n"
+                "📲 *Live Trial Book Karne Ke Simple Steps:*\n"
+                "1️⃣ Sensationz App download karein ya website visit karein\n"
+                "2️⃣ Profile create karke 'Trial Links' par tap karein\n"
+                "3️⃣ Apna preferred batch timing choose karein aur live trial confirm karein!\n\n"
+                "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+                "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
+            )
+        else:
+            trial_reply = (
+                "You can watch our sample demo videos and attend free live trial classes first! 😊 Up to 3 free live trial classes are allowed per student.\n\n"
+                "🎥 *Sample / Demo Videos:*\n"
+                "• Trainer Suman: https://youtu.be/IiVVdu4NkwI?si=leLgCK40Uo5Qhr0V\n"
+                "• Trainer Mradula: https://youtu.be/vXZ6UtrWpM8?si=WYpuo8Us7xIkXT8n\n"
+                "• Trainer Priya Mathur: https://youtu.be/M2Zh9SaHpX4?si=RXg-HXGI5n_ftxs-\n\n"
+                "📲 *Steps to Book Your Live Trial:*\n"
+                "1️⃣ Download the Sensationz App or visit our website\n"
+                "2️⃣ Create your profile and tap on 'Trial Links'\n"
+                "3️⃣ Select your preferred batch timing and confirm your live trial!\n\n"
+                "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+                "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
+            )
+        arm_followup_timer(state, topic=text)
+        await save_user_state_async(phone, state)
+        await send_text_message_async(phone, trial_reply)
+        latency_sec = round(time.time() - start_time, 2) if start_time else None
+        asyncio.create_task(save_message_async(phone, "assistant", trial_reply, response_time_sec=latency_sec))
+        asyncio.create_task(log_message_async(phone, "ai", trial_reply))
+        return
 
     # --- DETERMINISTIC STAGE GUARDS ---
+
     if not is_q and not is_info_intent(text) and state["stage"] == "ENROLL_CONFIRMED" and (is_fresh_enroll_confirmed or is_confirmation or is_greeting):
         reply = get_flow_followup(state)
         if reply:
@@ -765,21 +825,57 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         )
 
         if has_unlocked_coupon:
-            # Stage B: User already completed profile / unlocked coupon -> Always provide the actual code YOGA600
-            hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe"]
+            # Stage B: User already completed profile / unlocked coupon -> Provide duration-specific code (YOGA500 for 1M, YOGAFIT for others)
+            pkg = state.get("package") or ""
+            pkg_lower = pkg.lower()
+            is_1_month = "1 month" in pkg_lower or "one month" in pkg_lower
+            is_other_duration = bool(pkg) and not is_1_month and pkg != "NOT SELECTED"
+
+            hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe", "konsa"]
             has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
-            if has_hindi:
-                reply = (
-                    "Aapka welcome discount coupon code ye raha 🎁\n\n"
-                    "✨ Coupon Code: *YOGA600*\n\n"
-                    "Isko Sensationz App mein checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
-                )
+
+            if is_1_month:
+                if has_hindi:
+                    reply = (
+                        "Aapka welcome discount coupon code ye raha 🎁\n\n"
+                        "✨ Coupon Code: *YOGA500* (1 Month package ke liye)\n\n"
+                        "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
+                    )
+                else:
+                    reply = (
+                        "Here is your welcome discount coupon code 🎁\n\n"
+                        "✨ Coupon Code: *YOGA500* (for 1 Month package)\n\n"
+                        "Please enter this code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️"
+                    )
+            elif is_other_duration:
+                if has_hindi:
+                    reply = (
+                        f"Aapka welcome discount coupon code ye raha 🎁\n\n"
+                        f"✨ Coupon Code: *YOGAFIT* ({pkg} package ke liye)\n\n"
+                        "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
+                    )
+                else:
+                    reply = (
+                        f"Here is your welcome discount coupon code 🎁\n\n"
+                        f"✨ Coupon Code: *YOGAFIT* (for {pkg} package)\n\n"
+                        "Please enter this code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️"
+                    )
             else:
-                reply = (
-                    "Here is your welcome discount coupon code 🎁\n\n"
-                    "✨ Coupon Code: *YOGA600*\n\n"
-                    "Please enter this code during checkout in the Sensationz App to activate your discount. See you in class! 🧘‍♀️"
-                )
+                if has_hindi:
+                    reply = (
+                        "Aapke welcome discount coupon codes ye rahe 🎁\n\n"
+                        "✨ 1 Month duration: *YOGA500*\n"
+                        "✨ 3 Months, 6 Months aur 1 Year duration: *YOGAFIT*\n\n"
+                        "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
+                    )
+                else:
+                    reply = (
+                        "Here are your welcome discount coupon codes 🎁\n\n"
+                        "✨ 1 Month duration: *YOGA500*\n"
+                        "✨ 3 Months, 6 Months, and 1 Year durations: *YOGAFIT*\n\n"
+                        "Please enter the applicable code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️"
+                    )
+
             state["coupon_sent"] = True
             arm_followup_timer(state, topic="coupon resend")
             await save_user_state_async(phone, state)
@@ -790,23 +886,18 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             asyncio.create_task(log_message_async(phone, "ai", reply))
             return
         else:
-            # Stage A: User has NOT completed profile yet -> Explain unlock requirement, do NOT leak code
-            if state["stage"] in ["READY_FOR_APP_LINK", "APP_LINK_SENT"]:
-                reply = (
-                    "Aapka special welcome discount coupon code app ya website par profile banane ke baad unlock hota hai 🎁\n\n"
-                    "1️⃣ Sensationz App download karein ya website visit karein\n"
-                    "2️⃣ Profile complete karein\n"
-                    "3️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
-                    "Aur main turant aapka coupon code yahan bhej dunga!\n\n"
-                    "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
-                    "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
-                    "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
-                )
-            else:
-                reply = (
-                    "Aapka special welcome discount coupon code app mein profile banane ke baad unlock hota hai 🎁\n\n"
-                    "Isko paane ke liye apna timing aur package choose karein, app download karke profile banayein, aur yahan *Done* reply karein!"
-                )
+            # Stage A: User has NOT completed profile yet -> Explain unlock requirement with app links, do NOT leak code
+            reply = (
+                "Aapka special welcome discount coupon code app ya website par profile banane ke baad unlock hota hai 🎁\n\n"
+                "1️⃣ Sensationz App download karein ya website visit karein\n"
+                "2️⃣ Profile complete karein\n"
+                "3️⃣ Yahan *Done* ya *Yes* reply karein\n\n"
+                "Aur main turant aapka coupon code yahan bhej dunga!\n\n"
+                "📱 Android: https://play.google.com/store/apps/details?id=com.sensationz.sensationz.dev\n"
+                "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
+                "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
+            )
+            state["stage"] = advance_stage(state["stage"], "APP_LINK_SENT")
             arm_followup_timer(state, topic=text)
             await save_user_state_async(phone, state)
             await send_text_message_async(phone, reply)
@@ -817,19 +908,40 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             return
 
     # ── 2. Primary Coupon Delivery on Profile Confirmation ───────────────────
-    _COUPON_REQUEST_KWS = ["profile created", "profile done", "profile completed", "app downloaded", "app installed", "installed", "downloaded"]
+    _COUPON_REQUEST_KWS = [
+        "profile created", "profile done", "profile completed", "created profile",
+        "profile ban gayi", "profile bana li", "app downloaded", "app installed",
+        "installed", "downloaded", "done", "yes", "haan"
+    ]
     _is_coupon_request = matches_any(text, _COUPON_REQUEST_KWS)
     _should_send_coupon = (
-        (state["stage"] == "PROFILE_COMPLETED" and not state.get("coupon_sent"))
-        or (_is_coupon_request and state.get("profile_created") and not state.get("coupon_sent"))
+        (state.get("profile_created") and not state.get("coupon_sent"))
+        or (state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"] and not state.get("coupon_sent"))
+        or (_is_coupon_request and not state.get("coupon_sent") and state.get("profile_created"))
     )
 
     if _should_send_coupon:
+        pkg = state.get("package") or ""
+        pkg_lower = pkg.lower()
+        is_1_month = "1 month" in pkg_lower or "one month" in pkg_lower
+        is_other_duration = bool(pkg) and not is_1_month and pkg != "NOT SELECTED"
+
+        if is_1_month:
+            code_line = "🎁 Your welcome coupon code for 1 Month is: *YOGA500*"
+        elif is_other_duration:
+            code_line = f"🎁 Your welcome coupon code for {pkg} is: *YOGAFIT*"
+        else:
+            code_line = (
+                "🎁 Your welcome coupon codes:\n"
+                "• 1 Month duration: *YOGA500*\n"
+                "• 3 Months, 6 Months & 1 Year durations: *YOGAFIT*"
+            )
+
         reply = (
             "🎉 Welcome to the Sensationz family! 🌸\n"
             "Your app setup and profile are complete.\n\n"
-            "🎁 Your welcome coupon code is: *YOGA600*\n\n"
-            "Use this coupon in the app to activate your discount. See you in class! 🧘‍♀️✨"
+            f"{code_line}\n\n"
+            "Use this coupon in the app or website to activate your discount. See you in class! 🧘‍♀️✨"
         )
         state["coupon_sent"] = True
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")

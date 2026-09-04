@@ -20,8 +20,8 @@ from tasks import process_incoming_message_async
 
 load_dotenv()
 
-IDLE_DEBOUNCE_SECONDS = 1.2   # Idle gap wait (fires fast if user stops typing)
-MAX_BURST_CAP_SECONDS = 2.5   # Hard max wait from 1st message of a burst
+IDLE_DEBOUNCE_SECONDS = float(os.getenv("IDLE_DEBOUNCE_SECONDS", "4.0"))   # 4.0s idle gap wait per message
+MAX_BURST_CAP_SECONDS = float(os.getenv("MAX_BURST_CAP_SECONDS", "8.0"))   # 8.0s max burst window cap
 
 redis_conn = get_redis_connection()
 _active_debounce_tasks = {}
