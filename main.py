@@ -93,16 +93,12 @@ async def receive_interakt_webhook(request: Request):
     text = message.get("message", "")
     referral = message.get("referral", {})
 
-    print(f"[main] Message from {phone}: {text}")
     await log_message_async(phone, "user", text)
 
     try:
         await add_message_to_batch_async(phone, text, referral=referral)
-        elapsed = round((time.perf_counter() - start_time) * 1000, 1)
-        print(f"[main] {phone}: enqueued in {elapsed}ms")
         return {"status": "ok", "message": "enqueued"}
     except Exception as e:
-        print(f"[main] Batch enqueue failed ({e}) — fallback")
         return await _process_fallback(phone, text, referral, time.time())
 
 @app.post("/test-webhook")
@@ -119,16 +115,12 @@ async def receive_test_webhook(request: Request):
     text = message.get("message", "")
     referral = message.get("referral", {})
 
-    print(f"[test-webhook] {phone}: {text}")
     await log_message_async(phone, "user", text)
 
     try:
         await add_message_to_batch_async(phone, text, referral=referral)
-        elapsed = round((time.perf_counter() - start_time) * 1000, 1)
-        print(f"[test-webhook] {phone}: enqueued in {elapsed}ms")
         return {"status": "ok", "message": "enqueued"}
     except Exception as e:
-        print(f"[test-webhook] Batch enqueue failed ({e}) — fallback")
         return await _process_fallback(phone, text, referral, time.time())
 
 

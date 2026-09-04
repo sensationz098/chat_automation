@@ -35,11 +35,15 @@ _SUPPRESS_ON_USER_KWS = [
 
 # If ANY of these appear in the bot reply, no follow-up is appended.
 _SUPPRESS_ON_REPLY_KWS = [
-    "available nahi", "not available", "offer nahi", "not offered",
-    "nahi sikhate", "nahi karwate", "currently not available",
+    # Explicit unoffered services in replies
+    "prenatal yoga", "kids yoga", "face yoga", "1-on-1", "private class",
+    "personal class", "home tutor", "offline classes",
+    # Agent handoff / escalation suggestions
     "type *agent*", "support team can assist", "non-refundable", "non refundable",
     "agent type karein", "type agent", "kripya agent", "support team",
+    "absence allowed nahi", "leave ya absence allowed nahi",
 ]
+
 
 # Stages where no sales follow-up is ever added
 _SKIP_STAGES = {"PROFILE_COMPLETED", "COUPON_SENT", "READY_FOR_APP_LINK", "APP_LINK_SENT", "TRIAL_REQUESTED", "TRIAL_STEPS_SENT"}
@@ -56,16 +60,8 @@ _QUESTION_BANK = [
             "fee", "fees", "price", "cost", "kitna", "charges", "rupee",
             "mahanga", "expensive", "costly", "zyada",
         ],
-        "hindi": (
-            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). "
-            "Offer price app aur welcome coupon ke through applicable hoga. "
-            "Kaunsa time aapke liye best rahega, subah ya shaam? 😊"
-        ),
-        "english": (
-            "Fees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). "
-            "Offer price is applicable through the app and welcome coupon. "
-            "Which time slot suits you better, morning or evening? 😊"
-        ),
+        "hindi": "Kaunsa time slot aapke liye best rahega, subah ya shaam? 😊",
+        "english": "Which time slot suits you better, morning or evening? 😊",
     },
     {
         "triggers": [
@@ -73,12 +69,10 @@ _QUESTION_BANK = [
             "sir", "sikhane", "sikhata", "sikhati",
         ],
         "hindi": (
-            "Hamare teachers live class mein personally guide karte hain. "
-            "Kya aap pehle ek free trial class try karna chahenge?"
+            "Aap kis teacher ya timing ka trial lena chahenge? 😊"
         ),
         "english": (
-            "Our teachers guide you personally during live sessions. "
-            "Would you like to try a free trial class first?"
+            "Which teacher or batch timing would you like to try? 😊"
         ),
     },
     {
@@ -210,8 +204,8 @@ _FALLBACK_BY_STAGE = {
         "english": "How long would you like to join — start with 1 month or go for 3 months? 😊",
     },
     "PACKAGE_ASKED": {
-        "hindi": "Kaunsa package aapke liye best rahega?\nFees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). Offer price app aur welcome coupon ke through applicable hoga 😊",
-        "english": "Which package works best for you?\nFees: 1M: 700 (offer price: 500), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 2050), 1Y: 5000 (offer price: 3850). Offer price is applicable through the app and welcome coupon 😊",
+        "hindi": "Kaunsa package aapke liye best rahega?\nFees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800). Offer price app aur welcome coupon ke through applicable hoga 😊",
+        "english": "Which package works best for you?\nFees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800). Offer price is applicable through the app and welcome coupon 😊",
     },
     "PACKAGE_SELECTED": {
         "hindi": "Bahut badiya! App download karne mein koi help chahiye? 😊",
@@ -235,17 +229,8 @@ def _is_hindi(text: str) -> bool:
     return has_devanagari or has_hindi_word
 
 
-def _reply_already_has_question(full_reply: str) -> bool:
-    """Checks if the bot reply already ends with a question mark."""
-    TRAIL = "😊🙏🧘‍♀️✨🎉🌸💬📱 \n\t"
-    stripped = full_reply.strip().rstrip(TRAIL).strip()
-    return stripped.endswith("?")
-
-
 def _should_suppress(user_text: str, full_reply: str) -> bool:
     """Returns True if no follow-up question should be added."""
-    if _reply_already_has_question(full_reply):
-        return True
     u = user_text.lower()
     r = full_reply.lower()
     if any(kw in u for kw in _SUPPRESS_ON_USER_KWS):
@@ -262,9 +247,6 @@ def get_sales_followup(user_text: str, full_reply: str, state: dict) -> Optional
     Returns a context-aware, stage-sensitive follow-up question to send
     AFTER the bot reply as a separate WhatsApp message, or None if suppressed.
     """
-    if state.get("stage") in _SKIP_STAGES or state.get("wants_trial"):
-        return None
-
     if _should_suppress(user_text, full_reply):
         return None
 
@@ -292,11 +274,15 @@ def get_sales_followup(user_text: str, full_reply: str, state: dict) -> Optional
         if any(kw in u_lower for kw in entry["triggers"]):
             return entry["hindi"] if use_hindi else entry["english"]
 
-    # 3. Stage-aware fallback
+    # 3. Stage-aware fallback (skip if stage is in _SKIP_STAGES or wants_trial)
+    if state.get("stage") in _SKIP_STAGES or state.get("wants_trial"):
+        return None
+
     stage = state.get("stage", "NEW")
     if stage in _FALLBACK_BY_STAGE:
         q = _FALLBACK_BY_STAGE[stage]
         return q["hindi"] if use_hindi else q["english"]
 
     return None
+
 

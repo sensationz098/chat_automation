@@ -90,9 +90,6 @@ def log_message(phone: str, role: str, message: str, sources: str = "", retrieva
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
             writer.writerow(row)
 
-    safe_msg = message[:80].encode("ascii", errors="replace").decode("ascii")
-    src_flag = " [+sources]" if sources else ""
-    print(f"[csv_logger] [{role.upper()}]{src_flag} {phone}: {safe_msg}...")
 
 
 # ---------------------------------------------------------------------------

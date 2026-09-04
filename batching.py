@@ -68,12 +68,8 @@ async def _async_debounce_timer(phone: str, token: str, wait_seconds: float):
         redis_conn.delete(referral_key)
         redis_conn.delete(first_time_key)
 
-        print(f"[batching] {phone}: batch ready after {wait_seconds:.2f}s -> '{combined_text}' | Referral: {referral}")
-
         # Process asynchronously
-        t0 = time.perf_counter()
         await process_incoming_message_async(phone, combined_text, referral=referral)
-        print(f"[batching] {phone}: processing completed in {time.perf_counter() - t0:.2f}s")
 
     except Exception as e:
         print(f"[batching] Error in async debounce timer for {phone}: {e}")
@@ -143,6 +139,6 @@ async def add_message_to_batch_async(phone: str, text: str, referral: dict = Non
 
     task = asyncio.create_task(_async_debounce_timer(phone, token, wait_seconds))
     _active_debounce_tasks[phone] = task
-    print(f"[batching] {phone}: message added to batch, waiting {wait_seconds:.2f}s (elapsed={elapsed:.2f}s)")
+
 
 

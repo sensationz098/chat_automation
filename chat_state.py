@@ -260,6 +260,33 @@ async def clear_escalation_async(phone: str):
     return await asyncio.to_thread(clear_escalation, phone)
 
 
+def reset_user_state(phone: str) -> dict:
+    """Completely resets a user's session state in-memory, in Redis, and in Supabase."""
+    with _memory_lock:
+        _memory_sessions.pop(phone, None)
+    try:
+        redis_conn.delete(f"user_state:{phone}")
+        redis_conn.delete(f"phone-lock:{phone}")
+        redis_conn.delete(f"is_processing:{phone}")
+        redis_conn.delete(f"pending_queue:{phone}")
+    except Exception as e:
+        print(f"[chat_state] Redis reset error for {phone}: {e}")
+    if supabase:
+        try:
+            supabase.table("user_session_state").delete().eq("phone", phone).execute()
+            supabase.table("escalated_chats").delete().eq("phone", phone).execute()
+        except Exception as e:
+            print(f"[chat_state] Supabase reset error for {phone}: {e}")
+    initial = initial_state(phone)
+    save_user_state(phone, initial)
+    return initial
+
+
+async def reset_user_state_async(phone: str) -> dict:
+    """Non-blocking async wrapper to reset user state."""
+    return await asyncio.to_thread(reset_user_state, phone)
+
+
 def is_user_asking_question(text: str) -> bool:
 
     """
@@ -318,10 +345,10 @@ def is_user_asking_question(text: str) -> bool:
     return False
 
 VALID_PACKAGES = {
-    "1 Month": "₹700 (Offer Price: ₹500)",
+    "1 Month": "₹700 (Offer Price: ₹300)",
     "3 Months": "₹1,750 (Offer Price: ₹600)",
-    "6 Months": "₹3,200 (Offer Price: ₹2,050)",
-    "1 Year": "₹5,000 (Offer Price: ₹3,850)",
+    "6 Months": "₹3,200 (Offer Price: ₹1,000)",
+    "1 Year": "₹5,000 (Offer Price: ₹1,800)",
 }
 
 
@@ -667,29 +694,29 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     if not is_q:
         tokens = [w.strip(".,!?:;₹") for w in text_lower.replace(",", "").split()]
         if (text_lower in ["12", "1 year", "1yr", "1y", "yearly", "annual", "1 saal"]
-                or any(p in text_lower for p in ["1 year", "12 month", "12 months", "\u20b95,000", "\u20b93,850", "\u20b93850", "\u20b95000"])
-                or (_short_text and any(w in tokens for w in ["5000", "3850"]))
+                or any(p in text_lower for p in ["1 year", "12 month", "12 months", "₹5,000", "₹1,800", "₹1800", "₹5000", "₹3,850", "₹3850"])
+                or (_short_text and any(w in tokens for w in ["5000", "1800", "3850"]))
                 or (is_package_stage and text_lower in ["12", "twelve"])):
             state["package"] = "1 Year"
             state["fee"] = VALID_PACKAGES["1 Year"]
             is_package_detected = True
         elif (text_lower in ["6", "6m", "6 month", "6 months", "half yearly", "6 mahine"]
-                or any(p in text_lower for p in ["6 month", "6 months", "\u20b93,200", "\u20b92,050", "\u20b92050", "\u20b93200"])
-                or (_short_text and any(w in tokens for w in ["3200", "2050"]))
+                or any(p in text_lower for p in ["6 month", "6 months", "₹3,200", "₹1,000", "₹1000", "₹3200", "₹2,050", "₹2050"])
+                or (_short_text and any(w in tokens for w in ["3200", "1000", "2050"]))
                 or (is_package_stage and text_lower in ["6", "six"])):
             state["package"] = "6 Months"
             state["fee"] = VALID_PACKAGES["6 Months"]
             is_package_detected = True
         elif (text_lower in ["3", "3m", "3 month", "3 months", "quarterly", "3 mahine"]
-                or any(p in text_lower for p in ["3 month", "3 months", "\u20b91,750", "\u20b91750", "\u20b9600"])
+                or any(p in text_lower for p in ["3 month", "3 months", "₹1,750", "₹1750", "₹600"])
                 or (_short_text and any(w in tokens for w in ["1750", "600"]))
                 or (is_package_stage and text_lower in ["3", "three"])):
             state["package"] = "3 Months"
             state["fee"] = VALID_PACKAGES["3 Months"]
             is_package_detected = True
         elif (text_lower in ["1", "1m", "1 month", "one month", "monthly", "1 mahina"]
-                or any(p in text_lower for p in ["1 month", "\u20b9700", "\u20b9500"])
-                or (_short_text and any(w in tokens for w in ["700", "500"]))
+                or any(p in text_lower for p in ["1 month", "₹700", "₹300", "₹300", "₹500"])
+                or (_short_text and any(w in tokens for w in ["700", "300", "500"]))
                 or (is_package_stage and text_lower in ["1", "one"])):
             state["package"] = "1 Month"
             state["fee"] = VALID_PACKAGES["1 Month"]

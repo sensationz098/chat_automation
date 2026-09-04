@@ -40,14 +40,17 @@ def get_next_agent_email() -> tuple:
     return AGENT_POOL[index], index
 
 
+from datetime import datetime, timezone
+
 async def sweep_once():
-    now = time.time()
+    now_ts = time.time()
+    now_iso = datetime.now(timezone.utc).isoformat()
     print(f"[followup_worker] Sweep started at {time.strftime('%H:%M:%S')}")
     try:
         result = await asyncio.to_thread(
             lambda: supabase.table("user_session_state")
             .select("phone, follow_up_count, next_followup_due_at, last_topic, is_escalated")
-            .lte("next_followup_due_at", now)
+            .lte("next_followup_due_at", now_iso)
             .lt("follow_up_count", 2)
             .eq("is_escalated", False)
             .execute()
@@ -79,10 +82,11 @@ async def sweep_once():
                 await save_message_async(phone, "assistant", reply)
                 await log_message_async(phone, "ai", reply)
 
+                next_due_iso = datetime.fromtimestamp(now_ts + 300, tz=timezone.utc).isoformat()
                 await asyncio.to_thread(
                     lambda: supabase.table("user_session_state").update({
                         "follow_up_count": 1,
-                        "next_followup_due_at": now + 300,  # arm the 5-min window again
+                        "next_followup_due_at": next_due_iso,  # arm the 5-min window again
                     }).eq("phone", phone).execute()
                 )
                 print(f"[followup_worker] {phone}: sent 1st reminder")
