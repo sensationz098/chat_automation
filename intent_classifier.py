@@ -57,6 +57,7 @@ _PROFILE_STEMS = [
     "done", "ready", "complete", "created", "downloaded", "installed",
     "bna", "bana", "banali", "bnali", "banadi", "bnadi",
     "kardi", "krdi", "kardiya", "hogaya", "hogya", "bangaya", "bangya",
+    "krlia", "krliya", "karliya", "karlia", "karli", "krli", "kardia", "krdia",
     "nipat", "nipta", "khatam", "kaam", "dono", "finish", "setup",
 ]
 

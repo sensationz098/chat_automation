@@ -934,7 +934,15 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # ── Deterministic Coupon Unlock & Resend Handlers ────────────────────────
 
 
-    if not is_q and not is_info_intent(text) and state["stage"] == "READY_FOR_APP_LINK":
+    detected_pkg = detect_package_from_text(text)
+
+    if not is_q and not is_info_intent(text) and (
+        state["stage"] == "READY_FOR_APP_LINK"
+        or (state["stage"] == "APP_LINK_SENT" and not state.get("profile_created") and (detected_pkg or is_fresh_package_selected))
+    ):
+        if detected_pkg:
+            state["package"] = detected_pkg
+            state["fee"] = VALID_PACKAGES.get(detected_pkg, state.get("fee"))
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750 (Offer Price: ₹600)"
         msg1 = f"You've selected the {package} package ({fee}). 👍"
@@ -1006,22 +1014,30 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
     is_info_or_doubt = is_q or is_info_intent(text)
 
+    # Check if user is selecting or switching a package after profile is already unlocked / coupon delivered
+    is_package_selection_post_unlock = (
+        bool(detected_pkg or is_fresh_package_selected)
+        and bool(state.get("profile_created") or state.get("coupon_sent") or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"])
+        and not is_info_or_doubt
+    )
+
     # Condition to trigger coupon delivery:
     # 1. User specifically asked for coupon / code (_is_explicit_coupon_ask) AFTER profile is created
     # 2. User is frustrated / demanding coupon (is_frustrated_coupon_ask)
     # 3. User just completed profile setup (profile_just_completed) AND is NOT asking an informational question/doubt
+    # 4. User selected / switched package (is_package_selection_post_unlock) AFTER profile is already unlocked
     should_send_coupon_now = (
         (not is_complaint_or_refund_msg)
         and (
             (_is_explicit_coupon_ask and (state.get("profile_created") or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]))
             or is_frustrated_coupon_ask
             or (profile_just_completed and not is_info_or_doubt)
+            or is_package_selection_post_unlock
         )
     )
 
     if should_send_coupon_now:
-        # Check if user specified a package in this turn (e.g. "6 months ka coupon", "1 year code")
-        detected_pkg = detect_package_from_text(text)
+        # Check if user specified a package in this turn (e.g. "6 months ka coupon", "1 year code", "mrko 1 year ka chahiye")
         if detected_pkg:
             state["package"] = detected_pkg
             state["fee"] = VALID_PACKAGES[detected_pkg]

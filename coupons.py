@@ -131,18 +131,19 @@ def get_coupon_code_for_package(package_name: Optional[str]) -> Optional[str]:
 def format_coupon_prompt_string(package_name: Optional[str]) -> str:
     """
     Constructs the dynamic coupon instruction string for system prompts in prompt.py.
+    Provides the active package code AND lists all available codes so the LLM never
+    claims other packages don't have coupons.
     """
+    all_codes_summary = ", ".join(f"{pkg}: *{data['code']}*" for pkg, data in COUPON_REGISTRY.items())
     details = get_coupon_details(package_name)
     if details:
         canonical = normalize_package_name(package_name)
-        return f"*{details['code']}* (Strictly for {canonical} duration)"
-    
-    # If package not yet selected, show all available coupon codes dynamically
-    summary_parts = [
-        f"{pkg}: *{data['code']}*"
-        for pkg, data in COUPON_REGISTRY.items()
-    ]
-    return " | ".join(summary_parts)
+        return (
+            f"*{details['code']}* (for {canonical} package).\n"
+            f"   (All available package codes: {all_codes_summary}. "
+            f"If the customer selects or asks about a different package duration, provide the corresponding code for that package!)"
+        )
+    return all_codes_summary
 
 
 def format_coupon_banner(

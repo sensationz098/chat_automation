@@ -600,7 +600,7 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
     # Also covers informal present-perfect: "bna le hai", "kar le hai", "le liya hai"
     STANDALONE_PAST_VERBS = [
         r"\b(bnali|banali|bna\s*li|bana\s*li|banadi|bnadi|bna\s*di|bana\s*di|bana\s*diya|bna\s*diya|bana\s*liya|banaliya|bna\s*liya|bnaliya)\b",
-        r"\b(kardi|krdi|kardiya|krdiya|kar\s*li|kr\s*li|kar\s*diya|kr\s*diya)\b",
+        r"\b(kardi|krdi|kardiya|krdiya|kar\s*liya|kr\s*liya|karliya|krliya|karlia|krlia|kar\s*lia|kr\s*lia|kar\s*li|kr\s*li|karli|krli|kar\s*diya|kr\s*diya|kardia|krdia|kar\s*dia|kr\s*dia|kar\s*di|kr\s*di)\b",
         r"\b(ho\s*gaya|hogaya|ho\s*gya|hogya|ban\s*gaya|bangaya|ban\s*gya|bangya|ban\s*gayi|bangayi|ban\s*gai|bangai)\b",
         r"\b(created|completed|registered|setup\s*done|all\s*done)\b",
         # Informal present-perfect: "bna le hai", "bana le hai", "kar le hai", "kr le hai"
@@ -621,7 +621,7 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         r"banaya|banayi|"
         r"bana\s*chuka|bna\s*chuka|ban\s*chuki|ban\s*chuka|"
         r"ban\s*gayi|bangayi|ban\s*gai|bangai|ban\s*gya|bangya|ban\s*gaya|bangaya|"
-        r"kar\s*liya|kr\s*liya|kardiya|krdiya|kar\s*li|kr\s*li|karli|krli|kar\s*di|kr\s*di|kardi|krdi|"
+        r"kar\s*liya|kr\s*liya|karliya|krliya|karlia|krlia|kar\s*lia|kr\s*lia|kardiya|krdiya|kardia|krdia|kar\s*dia|kr\s*dia|kar\s*li|kr\s*li|karli|krli|kar\s*di|kr\s*di|kardi|krdi|"
         r"ho\s*g(aya|ya|yi|i)|hog(aya|ya|yi|i)|"
         r"ready|done|completed?|setup|set|registered"
         r")"
@@ -642,6 +642,9 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         "profile bna di", "profile bana di", "profile ready", "profile set",
         "account created", "account ban gaya", "account bana liya", "profile setup",
         # Colloquial task/setup completions
+        "krlia", "karliya", "krliya", "karlia", "kr lia", "kar lia",
+        "krdiya", "kardiya", "krdia", "kardia", "kr dia", "kar dia", "karli", "krli",
+        "hogya", "hogaya", "ho gaya",
         "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
         "dono kaam", "dono kaam ho gaye", "dono kaam nipat gaye", "dono kaam nipat gya",
         "nipat gaya", "nipat gaye", "nipat gya", "nipta diya", "sab nipta diya",
