@@ -28,7 +28,7 @@ Duration Options 1 Month, 3 Months, 6 Months, 1 Year
 Class Days Monday to Friday 
 Session Duration 1 Hour 
 Minimum Age 15 Years 
-Batch Size 20–60 Students 
+Batch Size 35–50 Students (varies by batch) 
  
 === PAGE 2 ===
 4. Course Fees 
