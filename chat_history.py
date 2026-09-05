@@ -6,7 +6,7 @@ from redis_client import get_redis_connection
 import time
 
 redis_conn = get_redis_connection()
-
+#ok
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
@@ -113,4 +113,4 @@ async def get_recent_history_async(phone: str, limit: int = HISTORY_CACHE_LIMIT)
 
 async def get_full_history_for_agent_async(phone: str):
     """Non-blocking async wrapper for human-agent dashboard history."""
-    return await asyncio.to_thread(get_full_history_for_agent, phone)
+    return await asyncio.to_thread(get_full_history_for_agent, phone)
