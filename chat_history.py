@@ -6,7 +6,7 @@ from redis_client import get_redis_connection
 import time
 
 redis_conn = get_redis_connection()
-#ok
+#ok:test
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
