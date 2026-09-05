@@ -614,14 +614,19 @@ def is_coupon_request(text: str) -> bool:
             return True
 
     _EXPLICIT_KWS = [
-        "konsa coupon", "konsa code", "kya code", "code kya", "coupon code kya",
+        "konsa coupon", "kaunsa coupon", "konsa code", "kaunsa code", "kya code", "code kya", "coupon code kya",
+        "konsa coupon rhga", "konsa coupon rahega", "kaunsa coupon rahega", "konsa lagega", "kaunsa lagega",
+        "which coupon", "what coupon", "which code", "what code",
         "send coupon", "send code", "send discount coupon", "code do", "code bhej",
-        "bhejo code", "coupon do", "coupon bhejo", "kaha hai", "kha h", "kaha h",
+        "bhejo code", "coupon do", "coupon bhejo", "coupon bjhdo", "coupon bhej do", "coupon de do",
+        "kaha hai", "kha h", "kaha h",
         "fhrse bjhdo", "phir se bhejo", "dobara bhejo", "again send", "resend", "resend code",
         "code nahi mila", "code nhi mila", "code nahi aaya", "code nhi aaya", "where is code",
         "where is coupon", "give coupon", "give code", "coupon code", "discount code", "code please",
         "tu coupon dega ya nahi", "tu coupon dega yaa nahi", "coupon dega ya nahi", "coupon dega ya nhi",
-        "coupon dega yaa nhi", "coupon code bhejo", "discount code bhejo", "ab coupon do"
+        "coupon dega yaa nhi", "coupon code bhejo", "discount code bhejo", "ab coupon do",
+        "1y ka coupon", "1 year ka coupon", "6 month ka coupon", "3 month ka coupon", "1 month ka coupon",
+        "1y ka code", "1 year ka code", "6 month ka code", "3 month ka code", "1 month ka code"
     ]
     return any(kw in t for kw in _EXPLICIT_KWS)
 
@@ -935,14 +940,14 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
 
 
     detected_pkg = detect_package_from_text(text)
+    if detected_pkg:
+        state["package"] = detected_pkg
+        state["fee"] = VALID_PACKAGES.get(detected_pkg, state.get("fee"))
 
     if not is_q and not is_info_intent(text) and (
         state["stage"] == "READY_FOR_APP_LINK"
         or (state["stage"] == "APP_LINK_SENT" and not state.get("profile_created") and (detected_pkg or is_fresh_package_selected))
     ):
-        if detected_pkg:
-            state["package"] = detected_pkg
-            state["fee"] = VALID_PACKAGES.get(detected_pkg, state.get("fee"))
         package = state.get("package") or "3 Months"
         fee = state.get("fee") or "₹1,750 (Offer Price: ₹600)"
         msg1 = f"You've selected the {package} package ({fee}). 👍"

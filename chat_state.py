@@ -834,21 +834,9 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     detected_pkg = detect_package_from_text(text)
 
     is_package_detected = False
-    
-    # Check if this message is a coupon request with package specification (e.g. "6 months ka coupon")
-    is_coupon_pkg_request = bool(detected_pkg and any(w in text_lower for w in ["coupon", "code", "copon", "cupon", "kupon", "promo", "voucher"]))
-    
-    # Check if user expresses selection/intent (e.g. "3 m wala lunga mai", "6 months chahiye", "want 1 year")
-    is_selection_intent = bool(detected_pkg and any(w in text_lower for w in [
-        "chahiye", "lena", "krna", "karna", "lunga", "lungi", "le rha", "le raha",
-        "select", "choose", "want", "prefer", "wala", "wali", "change", "badal", "pack", "package"
-    ]))
 
-    # Allow package update if:
-    # 1. Not asking an informational question (standard selection), OR
-    # 2. Coupon request with a specific package (e.g. "6 months ka coupon"), OR
-    # 3. Explicit selection/preference expression (e.g. "3 m wala", "6 months chahiye")
-    if detected_pkg and (not is_q or is_coupon_pkg_request or is_selection_intent):
+    # Whenever a package duration is mentioned or asked about, immediately update active package slot
+    if detected_pkg:
         state["package"] = detected_pkg
         state["fee"] = VALID_PACKAGES[detected_pkg]
         is_package_detected = True

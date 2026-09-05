@@ -101,9 +101,9 @@ Return ONLY strict JSON with these boolean fields:
 {"is_coupon_request": bool, "is_profile_done": bool, "is_coupon_info": bool}
 
 Definitions:
-- is_coupon_request: The user WANTS to receive/see their discount coupon code. Examples: "coupen bhej do", "mujhe code chahiye", "coupon do", "send my coupon", "bhai cupanwa dedo".
+- is_coupon_request: The user WANTS to receive, see, or ask for the coupon code for a package duration. Examples: "coupen bhej do", "mujhe code chahiye", "coupon do", "send my coupon", "1y k liye konsa coupon rhga", "1 year ka coupon kya hai", "which coupon for 1y", "bhai cupanwa dedo", "1y ka coupon bjhdo".
 - is_profile_done: The user is STATING they have ALREADY completed their profile/registration/app download/signup or tasks. Examples: "profile bna le hai", "done ho gaya", "banadi h", "created my account", "dono kaam nipat gaye", "sab kar diya". NOT asking how to create.
-- is_coupon_info: The user is asking an INFORMATIONAL question about coupons (how to apply, validity, expiry, refund, where to enter code, etc.). NOT requesting the code itself.
+- is_coupon_info: The user is asking a GENERAL INFORMATIONAL question about coupons (how to apply, GST on coupons, validity, expiry, refund, where to enter code, etc.). NOT asking for the code itself.
 
 IMPORTANT: A message can have MULTIPLE true values (e.g. "profile bna le hai ab coupen bhej do" → is_coupon_request=true AND is_profile_done=true)."""
 

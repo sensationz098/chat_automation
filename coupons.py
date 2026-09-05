@@ -54,7 +54,8 @@ def detect_package_from_text(text: Optional[str]) -> Optional[str]:
     """
     if not text:
         return None
-    t = text.strip().lower()
+    # Normalize whitespaces and newlines
+    t = re.sub(r"\s+", " ", text.strip().lower())
 
     # 1. Check exact canonical match first
     for canonical_name in COUPON_REGISTRY.keys():
@@ -62,15 +63,15 @@ def detect_package_from_text(text: Optional[str]) -> Optional[str]:
             return canonical_name
 
     # 2. Check 1 Year / 12 Months (Checked first to prevent '1' or '12' collision with '1 Month')
-    if re.search(r"\b(?:12\s*(?:months?|month|m|mahine?)|1\s*(?:year|yr|y|saal)|one\s*year|ek\s*saal|yearly|annual|yoga1800|₹\s*5,?000|₹\s*1,?800)\b", t):
+    if re.search(r"\b(?:12\s*(?:months?|month|m|mahine?)|1\s*(?:years?|year|yr|yrs|y|saal)|one\s*year|ek\s*saal|yearly|annual|annually|yoga1800|₹\s*5,?000|₹\s*1,?800)\b", t):
         return "1 Year"
     if re.search(r"\b(?:5000|1800)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
         return "1 Year"
-    if re.match(r"^(?:12|1y|1yr|1 year)$", t):
+    if re.match(r"^(?:12|12m|1y|1yr|1 year)$", t):
         return "1 Year"
 
     # 3. Check 6 Months
-    if re.search(r"\b(?:6\s*(?:months?|month|m|mahine?)|six\s*months?|half\s*yearly|yoga1000|₹\s*3,?200|₹\s*1,?000)\b", t):
+    if re.search(r"\b(?:6\s*(?:months?|month|m|mahine?)|six\s*months?|half\s*yearly|semi\s*annual|semi\s*annually|yoga1000|₹\s*3,?200|₹\s*1,?000)\b", t):
         return "6 Months"
     if re.search(r"\b(?:3200|1000)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
         return "6 Months"
@@ -85,13 +86,14 @@ def detect_package_from_text(text: Optional[str]) -> Optional[str]:
     if re.match(r"^(?:3|3m|3 month|3 months)$", t):
         return "3 Months"
 
-    # 5. Check 1 Month
-    if re.search(r"\b(?:1\s*(?:months?|month|m|mahina)|one\s*month|monthly|yoga300|₹\s*700|₹\s*300)\b", t):
-        return "1 Month"
-    if re.search(r"\b(?:700|300)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
-        return "1 Month"
-    if re.match(r"^(?:1|1m|1 month)$", t):
-        return "1 Month"
+    # 5. Check 1 Month (Guard against '1:00 pm', '1 pm', '10:00 am', '12:00 pm')
+    if not re.search(r"\b1(?::00)?\s*(?:pm|am)\b", t):
+        if re.search(r"\b(?:1\s*(?:months?|month|m|mahina|mahine)|one\s*month|monthly|yoga300|₹\s*700|₹\s*300)\b", t):
+            return "1 Month"
+        if re.search(r"\b(?:700|300)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
+            return "1 Month"
+        if re.match(r"^(?:1|1m|1 month)$", t):
+            return "1 Month"
 
     return None
 
@@ -134,14 +136,14 @@ def format_coupon_prompt_string(package_name: Optional[str]) -> str:
     Provides the active package code AND lists all available codes so the LLM never
     claims other packages don't have coupons.
     """
-    all_codes_summary = ", ".join(f"{pkg}: *{data['code']}*" for pkg, data in COUPON_REGISTRY.items())
+    all_codes_summary = ", ".join(f"{pkg}: *{data['code']}* (Offer: {data['currency']}{data['offer_price']:,})" for pkg, data in COUPON_REGISTRY.items())
     details = get_coupon_details(package_name)
     if details:
         canonical = normalize_package_name(package_name)
         return (
-            f"*{details['code']}* (for {canonical} package).\n"
-            f"   (All available package codes: {all_codes_summary}. "
-            f"If the customer selects or asks about a different package duration, provide the corresponding code for that package!)"
+            f"Active Selected Package: {canonical} -> Code *{details['code']}* (Offer Price: {details['currency']}{details['offer_price']:,}).\n"
+            f"   (ALL Package Coupon Codes: {all_codes_summary}.\n"
+            f"   RULE: If the customer asks about or chooses any different package duration, ALWAYS give the exact coupon code and offer price corresponding to that package!)"
         )
     return all_codes_summary
 
