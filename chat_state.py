@@ -345,12 +345,7 @@ def is_user_asking_question(text: str) -> bool:
         
     return False
 
-VALID_PACKAGES = {
-    "1 Month": "₹700 (Offer Price: ₹300)",
-    "3 Months": "₹1,750 (Offer Price: ₹600)",
-    "6 Months": "₹3,200 (Offer Price: ₹1,000)",
-    "1 Year": "₹5,000 (Offer Price: ₹1,800)",
-}
+from coupons import VALID_PACKAGES
 
 
 GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
@@ -566,6 +561,14 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         return False
     t = text.lower().strip()
 
+    # 0. Negations / problem markers (profile creation failed, error, unable)
+    NEGATION_MARKERS = [
+        r"\b(nahi|nhi|not|unable|fail|failed|error|issue|problem)\b.*?\b(ban|bana|bna|create|download|install|chal|open|ho\s*raha|ho\s*rahi|hua|hui)\b",
+        r"\b(ban|bana|bna|create|download|install)\b.*?\b(nahi|nhi|not|unable)\b",
+    ]
+    if any(re.search(p, t) for p in NEGATION_MARKERS):
+        return False
+
     # 1. Emphatic assertions of prior completion (overrides any rhetorical inquiry in the same sentence)
     # e.g., "bana to li bhai ab kese banau", "bna to li", "kar to liya", "maine to bana li", "already bana li"
     EMPHATIC_ASSERTION_PATTERNS = [
@@ -580,27 +583,26 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
 
     # 2. Check for pure how-to / future questions or imperatives (inquiry/request, not completion)
     # e.g., "bnalo", "banalo", "bana do", "profile kaise banaye", "kese banau", "app download karni hai"
+    # Note: "ab kya karna hai" / "aage kya karein" are next-step questions, NOT how-to-create inquiries!
     INQUIRY_MARKERS = [
-        r"\b(kaise|kese|how|kyun|kya)\b.*?\b(bana|create|kare|kru|download|register|fill|khol)",
-        r"\b(karna|krna|karni|krni|banana|banani)\s+h(ai)?\b",
+        r"\b(kaise|kese|how|kyun)\b.*?\b(bana|create|kare|kru|download|register|fill|khol)",
+        r"\b(banana|banani)\s+h(ai)?\b",
+        r"\b(download|install)\s*(karna|krna|karni|krni)\s+h(ai)?\b",
+        r"\b(create|banane)\s*(karna|krna|karni|krni|chahiye)\s+h(ai)?\b",
         r"\b(bnalo|banalo|bana\s*do|bna\s*do|kardo|krdo|kar\s*do|kr\s*do)\b",
         r"\bkese\s+kru\b",
         r"\bkaise\s+karein?\b",
         r"\bhelp\s+chahiye\b",
     ]
-    if any(re.search(p, t) for p in INQUIRY_MARKERS):
-        return False
 
     # 3. Standalone past-action completion verbs (Hindi/Hinglish/English)
-    # e.g. "bnali", "banali", "bna li", "bana li", "banadi", "kardi", "krdi", "kardiya", "ho gaya", "done", "created"
+    # e.g. "bnali", "banali", "bna li", "bana li", "banadi", "bnadi", "kardi", "krdi", "kardiya", "ho gaya", "done", "created"
     STANDALONE_PAST_VERBS = [
-        r"\b(bnali|banali|bna\s*li|bana\s*li|banadi|bna\s*di|bana\s*diya|bna\s*diya|bana\s*liya|banaliya|bna\s*liya|bnaliya)\b",
+        r"\b(bnali|banali|bna\s*li|bana\s*li|banadi|bnadi|bna\s*di|bana\s*di|bana\s*diya|bna\s*diya|bana\s*liya|banaliya|bna\s*liya|bnaliya)\b",
         r"\b(kardi|krdi|kardiya|krdiya|kar\s*li|kr\s*li|kar\s*diya|kr\s*diya)\b",
         r"\b(ho\s*gaya|hogaya|ho\s*gya|hogya|ban\s*gaya|bangaya|ban\s*gya|bangya|ban\s*gayi|bangayi|ban\s*gai|bangai)\b",
         r"\b(created|completed|registered|setup\s*done|all\s*done)\b",
     ]
-    if any(re.search(p, t) for p in STANDALONE_PAST_VERBS):
-        return True
 
     # 4. Direct noun + past-verb semantic combinations
     # Noun: profile / account / id / details / app
@@ -609,21 +611,15 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         r"("
         r"create\s*k(ar|r)\s*li|create\s*k(ar|r)\s*liya|create\s*k(ar|r)\s*di|create\s*k(ar|r)\s*diya|"
         r"create\s*kiya|create\s*ho\s*g(aya|ya|yi|i)|created|"
-        r"bana\s*li|banali|bna\s*li|bnali|bana\s*diya|banadi|bna\s*diya|bnadi|bana\s*liya|banaliya|bna\s*liya|bnaliya|"
-        r"banaya|banayi|bna\s*di|banadi|"
+        r"bana\s*li|banali|bna\s*li|bnali|bana\s*diya|banadi|bna\s*diya|bnadi|bna\s*di|bana\s*di|bana\s*liya|banaliya|bna\s*liya|bnaliya|"
+        r"banaya|banayi|"
         r"bana\s*chuka|bna\s*chuka|ban\s*chuki|ban\s*chuka|"
         r"ban\s*gayi|bangayi|ban\s*gai|bangai|ban\s*gya|bangya|ban\s*gaya|bangaya|"
         r"kar\s*liya|kr\s*liya|kardiya|krdiya|kar\s*li|kr\s*li|karli|krli|kar\s*di|kr\s*di|kardi|krdi|"
         r"ho\s*g(aya|ya|yi|i)|hog(aya|ya|yi|i)|"
-        r"ready|done|complete|completed|setup|set|registered"
+        r"ready|done|completed?|setup|set|registered"
         r")"
     )
-
-    if re.search(rf"\b{NOUN_RE}\b.*?{PAST_VERB_RE}", t):
-        return True
-
-    if re.search(rf"{PAST_VERB_RE}.*?\b{NOUN_RE}\b", t):
-        return True
 
     # App download / install completion
     APP_NOUN_RE = r"(app|application|sensationz)"
@@ -632,13 +628,12 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         r"install\s*k(ar|r)\s*li|install\s*k(ar|r)\s*liya|install\s*ho\s*g(aya|ya|yi|i)|installed|"
         r"khol\s*li|open\s*k(ar|r)\s*li)"
     )
-    if re.search(rf"\b{APP_NOUN_RE}\b.*?{APP_PAST_VERB_RE}", t) or re.search(rf"{APP_PAST_VERB_RE}.*?\b{APP_NOUN_RE}\b", t):
-        return True
 
     _EXPLICIT_COMPLETION_PHRASES = [
         "profile created", "profile done", "profile complete", "created profile",
         "profile ban gayi", "profile ban gai", "profile bana li", "profile banali",
-        "profile bna li", "profile bnali", "profile ready", "profile set",
+        "profile bna li", "profile bnali", "profile banadi", "profile bnadi",
+        "profile bna di", "profile bana di", "profile ready", "profile set",
         "account created", "account ban gaya", "account bana liya", "profile setup",
         "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
         "download kar liya", "download kr liya", "install kar liya", "install kr liya",
@@ -648,8 +643,15 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         "login kar liya", "login ho gaya", "signup kar liya", "sign up ho gaya",
         "registered", "registered on app", "profile is ready", "profile is done",
     ]
-    if any(p in t for p in _EXPLICIT_COMPLETION_PHRASES):
-        return True
+
+    has_past_completion = (
+        any(re.search(p, t) for p in STANDALONE_PAST_VERBS)
+        or bool(re.search(rf"\b{NOUN_RE}\b.*?{PAST_VERB_RE}", t))
+        or bool(re.search(rf"{PAST_VERB_RE}.*?\b{NOUN_RE}\b", t))
+        or bool(re.search(rf"\b{APP_NOUN_RE}\b.*?{APP_PAST_VERB_RE}", t))
+        or bool(re.search(rf"{APP_PAST_VERB_RE}.*?\b{APP_NOUN_RE}\b", t))
+        or any(p in t for p in _EXPLICIT_COMPLETION_PHRASES)
+    )
 
     # 5. Contextual Affirmations (strictly when in app link / profile creation stage)
     current_stage = (state.get("stage") if state else "") or ""
@@ -659,13 +661,21 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
             "yes done", "haan done", "ok done", "done done", "kar diya", "kardiya",
             "kr diya", "krdiya", "kar li", "krli", "ho gaya", "hogaya", "ho gya", "hogya",
             "ban gaya", "bangaya", "ban gayi", "bangayi", "bnali", "banali", "bna li", "bana li",
-            "bna di", "banadi", "kardi", "krdi"
+            "bna di", "banadi", "bnadi", "kardi", "krdi"
         ]
         words = re.findall(r"\w+", t)
         if any(w in words for w in ["done", "yes", "haan", "bilkul"]):
-            return True
-        if any(p in t for p in _AFFIRMATIVE_SIGNALS):
-            return True
+            has_past_completion = True
+        elif any(p in t for p in _AFFIRMATIVE_SIGNALS):
+            has_past_completion = True
+
+    # If there's an affirmative completion signal, it takes precedence over next-step questions
+    if has_past_completion:
+        return True
+
+    # Otherwise, if it matches an inquiry marker, reject it
+    if any(re.search(p, t) for p in INQUIRY_MARKERS):
+        return False
 
     return False
 
@@ -758,15 +768,47 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     # --- 1. Detect Batch Timing Slot ---
     timing_found = False
     if not state.get("timing") and not is_q:  # Only detect if timing not already set and user is NOT asking a question
-        timing_str, is_ambiguous, ambiguous_range = _detect_timing(text_lower)
-        if timing_str:
-            state["timing"] = timing_str
-            state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
-            timing_found = True
-            state.pop("ambiguous_timing_range", None)  # clear any pending ambiguity
-        elif is_ambiguous:
-            state["ambiguous_timing_range"] = ambiguous_range
-            timing_found = True  # Prevents LLM fallback from executing and overriding ambiguous timings
+        # Check pending ambiguous timing resolution (e.g. user was asked to clarify '5:00' -> AM or PM)
+        pending_amb = state.get("pending_ambiguous_timing")
+        if pending_amb:
+            tokens = [w.strip(".,!?:;\"'") for w in text_lower.split()]
+            is_am = any(w in ["am", "subah", "morning", "mrng", "morng", "sawere", "savere"] for w in tokens) or any(w in text_lower for w in ["subah", "morning", "sawere", "savere"]) or text_lower in ["am", "subah", "morning"]
+            is_pm = any(w in ["pm", "shaam", "evening", "evng", "night", "raat", "sham"] for w in tokens) or any(w in text_lower for w in ["shaam", "evening", "night", "raat", "sham"]) or text_lower in ["pm", "shaam", "evening"]
+            
+            resolved_timing = None
+            if is_am and not is_pm:
+                if "5" in pending_amb:
+                    resolved_timing = "5:00–6:00 AM"
+                elif "6" in pending_amb:
+                    resolved_timing = "6:00–7:00 AM"
+                elif "7" in pending_amb:
+                    resolved_timing = "7:00–8:00 AM"
+            elif is_pm and not is_am:
+                if "5" in pending_amb:
+                    resolved_timing = "5:00–6:00 PM"
+                elif "6" in pending_amb:
+                    resolved_timing = "6:00–7:00 PM"
+                elif "7" in pending_amb:
+                    resolved_timing = "7:00–8:00 PM"
+            
+            if resolved_timing:
+                state["timing"] = resolved_timing
+                state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+                state.pop("pending_ambiguous_timing", None)
+                state.pop("ambiguous_timing_range", None)
+                timing_found = True
+
+        if not timing_found:
+            timing_str, is_ambiguous, ambiguous_range = _detect_timing(text_lower)
+            if timing_str:
+                state["timing"] = timing_str
+                state["stage"] = advance_stage(state["stage"], "TIMING_SELECTED")
+                timing_found = True
+                state.pop("ambiguous_timing_range", None)  # clear any pending ambiguity
+                state.pop("pending_ambiguous_timing", None)
+            elif is_ambiguous:
+                state["ambiguous_timing_range"] = ambiguous_range
+                timing_found = True  # Prevents LLM fallback from executing and overriding ambiguous timings
 
     # --- 2. Detect Package / Duration Slot ---
     # We allow package detection at any stage if the text contains clear indicators,

@@ -39,6 +39,7 @@ from rag import ask_rag_async, stream_rag
 from redis_client import get_redis_connection
 from sales_followup import get_sales_followup
 from agent_summary import send_agent_summary_async
+from coupons import format_coupon_banner, get_all_coupon_codes, get_coupon_details
 import re
 
 
@@ -101,6 +102,47 @@ def _format_for_whatsapp(text: str) -> str:
     return text.strip()
 
 
+
+def is_complaint_or_refund(text: str) -> bool:
+    """
+    Detects if the incoming message is a refund request, cancellation dispute,
+    legal threat, police complaint, or accusation of scam/fraud.
+    Such messages must NEVER trigger sales, enrollment pushes, or discount coupon codes.
+    """
+    if not text:
+        return False
+    t = text.lower().strip()
+
+    # Explicit refund / return patterns
+    REFUND_PATTERNS = [
+        r"\b(refund|refound)\b",
+        r"\b(paise|paisa|fees|fee|money)\s+(wapis|wapas|vapis|vapas|return|doob|chahiye|mang)\b",
+        r"\b(wapis|wapas|vapis|vapas|return)\s+(kro|karo|kardo|krdo|chahiye|de\s*do|dedo|do)\b",
+        r"\bmoney\s*back\b",
+    ]
+    if any(re.search(p, t) for p in REFUND_PATTERNS):
+        return True
+
+    # Legal / Police / Consumer Forum threats
+    LEGAL_PATTERNS = [
+        r"\b(case|fir)\s+(kar|kr|karunga|krunga|kar rha|kr rha|file)\b",
+        r"\b(police|court|consumer\s*court|consumer\s*forum|legal\s*action)\b",
+        r"\b(illegal|illega)\b",
+    ]
+    if any(re.search(p, t) for p in LEGAL_PATTERNS):
+        return True
+
+    # Scam / Cheating / Fraud company accusations (not mere discount complaints)
+    GRIEVANCE_PATTERNS = [
+        r"\b(fraud|scam|cheater|chor|loot|dhokhebaaz|dhokhadhadi)\b",
+    ]
+    # If it accuses fraud/scam without explicitly asking for a coupon code
+    if any(re.search(p, t) for p in GRIEVANCE_PATTERNS) and not any(cw in t for cw in ["coupon", "voucher", "code"]):
+        return True
+
+    return False
+
+
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello!! Can I get more info on Yoga classes?")
 
 # ── Robust Disinterest / Refusal Engine ──────────────────────────────────────
@@ -151,8 +193,8 @@ def is_disinterest_signal(text: str) -> bool:
         return False
     t = text.lower().strip()
 
-    # 1. False-positive check: If text contains known non-refusal phrases
-    if any(exc in t for exc in _DISINTEREST_EXCLUSIONS):
+    # 1. False-positive check: If text contains known non-refusal phrases or refund/complaints
+    if is_complaint_or_refund(text) or any(exc in t for exc in _DISINTEREST_EXCLUSIONS):
         return False
 
     # 2. Check if user is specifying/correcting a slot (e.g. "no, evening please", "no 1 month")
@@ -463,14 +505,21 @@ def _strip_trailing_questions(text: str) -> str:
 
 
 def get_flow_followup(state: dict) -> str:
-    # 1. If enrollment completed, coupon sent, trial mode active, or profile created
-    if (state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT", "TRIAL_STEPS_SENT", "TRIAL_REQUESTED"]
-            or state.get("coupon_sent") or state.get("wants_trial") or state.get("profile_created")):
+    # 1. If user is in trial mode
+    if state.get("wants_trial") or state.get("stage") in ["TRIAL_STEPS_SENT", "TRIAL_REQUESTED"]:
         return None
 
-    # 2. If app links have already been sent, do NOT repeat them
-    if state.get("stage") == "APP_LINK_SENT":
-        return None
+    # 2. If timing is selected but package is missing -> ALWAYS prompt for package duration
+    if state.get("timing") and not state.get("package"):
+        return (
+            "Which package duration would you like to start with? 😊\n\n"
+            "Fees:\n"
+            "• 1 Month: ₹700 (Offer Price: ₹300)\n"
+            "• 3 Months: ₹1,750 (Offer Price: ₹600)\n"
+            "• 6 Months: ₹3,200 (Offer Price: ₹1,000)\n"
+            "• 1 Year: ₹5,000 (Offer Price: ₹1,800)\n\n"
+            "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here."
+        )
 
     # 3. If ready for app link (first time only)
     if state.get("stage") == "READY_FOR_APP_LINK":
@@ -482,14 +531,11 @@ def get_flow_followup(state: dict) -> str:
             "🍎 iOS: https://apps.apple.com/us/app/sensationz/id6761418351\n"
             "💻 Website / PC / Laptop: https://shop.sensationzperformingarts.com/"
         )
-        
-    # 3. If timing is selected but package is missing (and user is NOT in trial mode)
-    if state.get("timing") and not state.get("package") and not state.get("wants_trial"):
-        return (
-            "Which package duration would you like to start with? 😊\n"
-            "Fees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800)\n\n"
-            "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here."
-        )
+
+    # 4. If enrollment completed, coupon sent, or app links already delivered
+    if (state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT", "APP_LINK_SENT"]
+            or state.get("coupon_sent") or state.get("profile_created")):
+        return None
         
     # 4. If timing is missing
     if not state.get("timing"):
@@ -556,10 +602,8 @@ def _sanitize_locked_coupons(reply: str, state: dict) -> str:
     if has_unlocked:
         return reply
 
-    coupon_patterns = [
-        r"\*?YOGA300\*?", r"\*?YOGA600\*?", r"\*?YOGA1000\*?", r"\*?YOGA1800\*?",
-        r"\*?YOGA500\*?", r"\*?YOGAFIT\*?"
-    ]
+    active_codes = get_all_coupon_codes() + ["YOGA500", "YOGAFIT"]
+    coupon_patterns = [rf"\*?{re.escape(c)}\*?" for c in set(active_codes)]
     cleaned = reply
     leaked = False
     for pat in coupon_patterns:
@@ -624,6 +668,7 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # --- Handle Ambiguous Timing (requires AM/PM clarification from user) ---
     if state.get("ambiguous_timing_range") and not state.get("timing"):
         amb = state.get("ambiguous_timing_range")
+        state["pending_ambiguous_timing"] = amb
         state["ambiguous_timing_range"] = None
         await save_user_state_async(phone, state)
         reply = (
@@ -793,29 +838,38 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
             asyncio.create_task(log_message_async(phone, "ai", reply))
             return
 
-    if not is_q and not is_info_intent(text) and state["stage"] == "TIMING_SELECTED" and not state.get("package") and (is_fresh_timing_selected or is_confirmation or is_greeting):
-        msg1 = f"You've selected the {state.get('timing')} batch. 👍"
+    if not is_q and state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED"] and not state.get("package") and (is_fresh_timing_selected or ((is_confirmation or is_greeting) and not is_info_intent(text))):
+        msg1 = f"You've selected the {state.get('timing')} batch. 👍" if is_fresh_timing_selected else None
         msg2 = (
-            "Which package duration would you like to start with? 😊\n"
-            "Fees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800)\n\n"
+            "Which package duration would you like to start with? 😊\n\n"
+            "Fees:\n"
+            "• 1 Month: ₹700 (Offer Price: ₹300)\n"
+            "• 3 Months: ₹1,750 (Offer Price: ₹600)\n"
+            "• 6 Months: ₹3,200 (Offer Price: ₹1,000)\n"
+            "• 1 Year: ₹5,000 (Offer Price: ₹1,800)\n\n"
             "*Note:* Offer price will be only applicable through app and welcome coupon. Once the app is downloaded and the profile is created, the welcome coupon will be sent here."
         )
         state["stage"] = advance_stage(state["stage"], "PACKAGE_ASKED")
         arm_followup_timer(state, topic=text)
         await save_user_state_async(phone, state)
-        msg1 = _format_for_whatsapp(msg1)
-        msg2 = _format_for_whatsapp(msg2)
-        await send_text_message_async(phone, msg1)
-        await asyncio.sleep(1)
-        await send_text_message_async(phone, msg2)
-        combined = msg1 + "\n\n" + msg2
+        if msg1:
+            msg1 = _format_for_whatsapp(msg1)
+            msg2 = _format_for_whatsapp(msg2)
+            await send_text_message_async(phone, msg1)
+            await asyncio.sleep(1)
+            await send_text_message_async(phone, msg2)
+            combined = msg1 + "\n\n" + msg2
+        else:
+            msg2 = _format_for_whatsapp(msg2)
+            await send_text_message_async(phone, msg2)
+            combined = msg2
         latency_sec = round(time.time() - start_time, 2) if start_time else None
         # Fire-and-forget background logging
         asyncio.create_task(save_message_async(phone, "assistant", combined, response_time_sec=latency_sec))
         asyncio.create_task(log_message_async(phone, "ai", combined))
         return
 
-    if not is_q and not is_info_intent(text) and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing") and (is_fresh_package_selected or is_confirmation or is_greeting):
+    if not is_q and state["stage"] == "PACKAGE_SELECTED" and not state.get("timing") and (is_fresh_package_selected or ((is_confirmation or is_greeting) and not is_info_intent(text))):
         msg1 = f"You've selected the {state.get('package')} package. 👍"
         msg2 = (
             "Which timing would you prefer for your classes? 😊\n"
@@ -870,100 +924,57 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         return
 
     # ── Deterministic Coupon Unlock, Resend & Profile Completion Handlers ────
-    profile_just_completed = is_profile_completed_signal(text, state)
+    is_complaint_or_refund_msg = is_complaint_or_refund(text)
+
+    profile_just_completed = (not is_complaint_or_refund_msg) and is_profile_completed_signal(text, state)
     if profile_just_completed and not state.get("profile_created"):
         state["app_installed"] = True
         state["profile_created"] = True
         state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
 
-    _is_explicit_coupon_ask = is_coupon_request(text_lower)
+    _is_explicit_coupon_ask = (not is_complaint_or_refund_msg) and is_coupon_request(text_lower)
 
     hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe", "konsa", "dega", "nhi", "nahi", "bhai", "dena"]
     has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
 
     is_frustrated_coupon_ask = (
-        _is_explicit_coupon_ask
-        or any(w in text_lower for w in ["fraud", "dhokha", "fake", "dega ya nahi", "dega yaa nahi", "dega ki nahi", "kyu nahi de raha", "kyun nahi de raha", "kab doge"])
-    ) and (
-        state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK", "PROFILE_COMPLETED", "COUPON_SENT"]
-        or state.get("profile_created")
-        or profile_just_completed
+        (not is_complaint_or_refund_msg)
+        and (
+            _is_explicit_coupon_ask
+            or any(phrase in text_lower for phrase in [
+                "coupon dega ya nahi", "coupon dega yaa nahi", "coupon dega ki nahi",
+                "coupon kyu nahi de raha", "coupon kyun nahi de raha", "kab doge coupon",
+                "code dega ya nahi", "code kyu nahi de raha", "fake coupon", "fraud coupon",
+                "dhokha coupon"
+            ])
+        )
+        and (
+            state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK", "PROFILE_COMPLETED", "COUPON_SENT"]
+            or state.get("profile_created")
+            or profile_just_completed
+        )
     )
 
-    should_unlock_and_send_coupon = (
-        state.get("profile_created")
-        or state.get("coupon_sent")
-        or profile_just_completed
-        or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]
-        or (_is_explicit_coupon_ask and state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK"])
-        or (is_fresh_package_selected and state.get("stage") in ["APP_LINK_SENT", "PROFILE_COMPLETED"])
-        or is_frustrated_coupon_ask
+    is_info_or_doubt = is_q or is_info_intent(text)
+
+    # Condition to trigger coupon delivery:
+    # 1. User specifically asked for coupon / code (_is_explicit_coupon_ask or is_frustrated_coupon_ask)
+    # 2. User just completed profile setup (profile_just_completed) AND is NOT asking an informational question/doubt
+    should_send_coupon_now = (
+        (not is_complaint_or_refund_msg)
+        and (
+            (_is_explicit_coupon_ask and (state.get("profile_created") or state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK", "PROFILE_COMPLETED", "COUPON_SENT"]))
+            or is_frustrated_coupon_ask
+            or (profile_just_completed and not is_info_or_doubt)
+        )
     )
 
-    if should_unlock_and_send_coupon and (
-        _is_explicit_coupon_ask
-        or profile_just_completed
-        or is_frustrated_coupon_ask
-        or (is_fresh_package_selected and state.get("stage") in ["APP_LINK_SENT", "PROFILE_COMPLETED"])
-        or (state.get("stage") in ["PROFILE_COMPLETED"] and not state.get("coupon_sent"))
-    ):
-        pkg = state.get("package") or ""
-        pkg_lower = pkg.lower()
-        is_1_month = "1 month" in pkg_lower or "one month" in pkg_lower
-        is_3_month = "3 month" in pkg_lower or "three month" in pkg_lower
-        is_6_month = "6 month" in pkg_lower or "six month" in pkg_lower
-        is_1_year = "1 year" in pkg_lower or "12 month" in pkg_lower or "one year" in pkg_lower or "yearly" in pkg_lower
-
-        if is_1_month:
-            code = "YOGA300"
-            pkg_name = "1 Month"
-        elif is_3_month:
-            code = "YOGA600"
-            pkg_name = "3 Months"
-        elif is_6_month:
-            code = "YOGA1000"
-            pkg_name = "6 Months"
-        elif is_1_year:
-            code = "YOGA1800"
-            pkg_name = "1 Year"
-        else:
-            code = None
-            pkg_name = None
-
-        if code:
-            code_details_hi = f"✨ Coupon Code: *{code}* ({pkg_name} package ke liye)"
-            code_details_en = f"✨ Coupon Code: *{code}* (for {pkg_name} package)"
-        else:
-            code_details_hi = (
-                "• 1 Month duration: *YOGA300*\n"
-                "• 3 Months duration: *YOGA600*\n"
-                "• 6 Months duration: *YOGA1000*\n"
-                "• 1 Year duration: *YOGA1800*"
-            )
-            code_details_en = code_details_hi
-
-        if is_frustrated_coupon_ask:
-            reply = (
-                "Bilkul denge! Hum 100% genuine hain aur daily live yoga classes conduct karte hain 😊\n\n"
-                "Ye raha aapka special welcome discount coupon code 🎁\n\n"
-                f"{code_details_hi}\n\n"
-                "Isko Sensationz App ya website checkout par enter karke apply karein. Class mein milte hain! 🧘‍♀️"
-            )
-        elif has_hindi:
-            reply = (
-                "🎉 Sensationz family mein aapka swagat hai! 🌸\n"
-                "Aapka welcome discount coupon code ye raha 🎁\n\n"
-                f"{code_details_hi}\n\n"
-                "Isko Sensationz App ya website checkout par enter karke apply karein aur offer price activate karein. Class mein milte hain! 🧘‍♀️✨"
-            )
-        else:
-            reply = (
-                "🎉 Welcome to the Sensationz family! 🌸\n"
-                "Here is your welcome discount coupon code 🎁\n\n"
-                f"{code_details_en}\n\n"
-                "Please enter this code during checkout in the Sensationz App or website to activate your discount. See you in class! 🧘‍♀️✨"
-            )
-
+    if should_send_coupon_now:
+        reply = format_coupon_banner(
+            state.get("package"),
+            language="hindi" if has_hindi else "english",
+            is_frustrated=is_frustrated_coupon_ask
+        )
         state["coupon_sent"] = True
         state["stage"] = advance_stage(state["stage"], "COUPON_SENT")
         arm_followup_timer(state, topic="coupon activation")

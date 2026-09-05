@@ -204,8 +204,24 @@ _FALLBACK_BY_STAGE = {
         "english": "How long would you like to join — start with 1 month or go for 3 months? 😊",
     },
     "PACKAGE_ASKED": {
-        "hindi": "Kaunsa package aapke liye best rahega?\nFees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800). Offer price app aur welcome coupon ke through applicable hoga 😊",
-        "english": "Which package works best for you?\nFees: 1M: 700 (offer price: 300), 3M: 1750 (offer price: 600), 6M: 3200 (offer price: 1000), 1Y: 5000 (offer price: 1800). Offer price is applicable through the app and welcome coupon 😊",
+        "hindi": (
+            "Kaunsa package aapke liye best rahega? 😊\n\n"
+            "Fees:\n"
+            "• 1 Month: ₹700 (Offer Price: ₹300)\n"
+            "• 3 Months: ₹1,750 (Offer Price: ₹600)\n"
+            "• 6 Months: ₹3,200 (Offer Price: ₹1,000)\n"
+            "• 1 Year: ₹5,000 (Offer Price: ₹1,800)\n\n"
+            "Offer price app aur welcome coupon ke through applicable hoga ✨"
+        ),
+        "english": (
+            "Which package works best for you? 😊\n\n"
+            "Fees:\n"
+            "• 1 Month: ₹700 (Offer Price: ₹300)\n"
+            "• 3 Months: ₹1,750 (Offer Price: ₹600)\n"
+            "• 6 Months: ₹3,200 (Offer Price: ₹1,000)\n"
+            "• 1 Year: ₹5,000 (Offer Price: ₹1,800)\n\n"
+            "Offer price is applicable through the app and welcome coupon ✨"
+        ),
     },
     "PACKAGE_SELECTED": {
         "hindi": "Bahut badiya! App download karne mein koi help chahiye? 😊",
@@ -326,6 +342,30 @@ def get_sales_followup(user_text: str, full_reply: str, state: dict) -> Optional
                 "Subah ya shaam — kaun sa time aapke daily routine mein fit hoga? 😊"
                 if use_hindi else
                 "Morning, Afternoon or evening — which time fits your daily routine better? 😊"
+            )
+
+    # 3b. Conversational Acknowledgments / Confirmations ("ok", "okay", "theek hai", "got it", "fine", etc.)
+    ack_words = ["ok", "okay", "theek", "theek hai", "thik", "thik hai", "accha", "acha", "got it", "understood", "fine", "k", "sahi", "sahi hai"]
+    tokens = [w.strip(".,!?:;\"'") for w in u_lower.split()]
+    is_ack = u_lower in ack_words or (len(tokens) <= 2 and any(w in ack_words for w in tokens))
+    if is_ack:
+        if state.get("timing") and not state.get("package"):
+            return (
+                "Aap kitne duration ke liye start karna chahenge — 1 month ya 3 months? 😊"
+                if use_hindi else
+                "Which package duration would you like to start with — 1 month or 3 months? 😊"
+            )
+        elif not state.get("timing"):
+            return (
+                "Subah ya shaam — kaun sa time aapke daily routine mein fit hoga? 😊"
+                if use_hindi else
+                "Morning, afternoon or evening — which time fits your daily routine better? 😊"
+            )
+        elif state.get("timing") and state.get("package") and not state.get("profile_created"):
+            return (
+                "App download karke profile banane mein koi help chahiye? 😊"
+                if use_hindi else
+                "Need any help downloading the app and creating your profile? 😊"
             )
 
     # 4. Keyword-matched question (first match wins)
