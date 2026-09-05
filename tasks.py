@@ -12,6 +12,7 @@ KEY CONCURRENCY DESIGN:
 import os
 import time
 import asyncio
+import json
 from dotenv import load_dotenv
 from interakt import send_text_message_async, assign_chat_to_agent_async
 from chat_state import reset_follow_up_timer, arm_followup_timer
@@ -143,6 +144,7 @@ def is_complaint_or_refund(text: str) -> bool:
     return False
 
 
+TARGET_AD_ID = os.getenv("TARGET_AD_ID")
 TARGET_MESSAGE_TEXT = os.getenv("TARGET_MESSAGE_TEXT", "Hello!! Can I get more info on Yoga classes?")
 
 # ── Robust Disinterest / Refusal Engine ──────────────────────────────────────
@@ -331,13 +333,13 @@ def is_welcome_trigger(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Target ad / message verification
+# Target ad verification
 # ---------------------------------------------------------------------------
 def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = None) -> bool:
     """
     Checks if a message qualifies for bot response.
-    1. Already-verified user (state flag) → PASS
-    2. First message: Match exact code '0123456789' → PASS
+    1. Already-verified user (state flag: is_target_ad=True) → PASS
+    2. First message: Match exact Ad ID from ENV (TARGET_AD_ID) in referral data → PASS
     3. Otherwise → FAIL (no reply, no assignment)
     """
     if phone:
@@ -349,26 +351,32 @@ def is_target_ad_or_message(text: str, referral_data: dict = None, phone: str = 
         except Exception:
             pass
 
-    # Match exact code '0123456789' in incoming message
-    TARGET_CODE = "0123456789"
-    if TARGET_CODE in (text or ""):
-        print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Target code '{TARGET_CODE}' matched in message")
-        return True
+    target_ad = (TARGET_AD_ID or os.getenv("TARGET_AD_ID") or "").strip()
 
-    # # Match target message (COMMENTED OUT — only code '0123456789' enables AI)
-    # if is_welcome_trigger(text or ""):
-    #     print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Target message '{TARGET_MESSAGE_TEXT}' matched")
-    #     return True
+    if isinstance(referral_data, str):
+        try:
+            referral_data = json.loads(referral_data)
+        except Exception:
+            pass
 
-    # # Match referral if present (COMMENTED OUT — only code '0123456789' enables AI)
-    # if referral_data:
-    #     headline = (referral_data.get("headline") or "").lower()
-    #     body = (referral_data.get("body") or "").lower()
-    #     if "yoga" in headline or "yoga" in body:
-    #         print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Yoga referral matched in ad metadata")
-    #         return True
+    # Match Ad ID from referral metadata against TARGET_AD_ID in ENV
+    if referral_data and isinstance(referral_data, dict) and target_ad:
+        source_id = str(referral_data.get("source_id") or "").strip()
+        source_url = str(referral_data.get("source_url") or "").strip()
+        ad_id = str(referral_data.get("ad_id") or "").strip()
 
-    print(f"[2] 🎯 DECISION : {phone} -> WILL NOT REPLY | Reason: Not a verified target ad/message")
+        if source_id == target_ad or ad_id == target_ad or target_ad in source_url:
+            print(f"[2] 🎯 DECISION : {phone} -> WILL REPLY | Reason: Ad ID match '{source_id or ad_id}' == '{target_ad}'")
+            return True
+        else:
+            print(f"[2] 🎯 DECISION : {phone} -> WILL NOT REPLY | Reason: Ad ID MISMATCH — source_id='{source_id}' vs TARGET='{target_ad}'")
+            return False
+
+    if not referral_data:
+        print(f"[2] 🎯 DECISION : {phone} -> WILL NOT REPLY | Reason: No referral data (organic / non-ad message)")
+    else:
+        print(f"[2] 🎯 DECISION : {phone} -> WILL NOT REPLY | Reason: TARGET_AD_ID not set in environment")
+
     return False
 
 

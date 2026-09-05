@@ -1,7 +1,7 @@
 """
 reset_all_leads.py — Resets is_target_ad=False for ALL users in Supabase & Redis.
 This makes the AI stop replying to every existing lead.
-Only leads who text '0123456789' will be re-verified.
+Only new leads coming with the target Meta Ad ID (TARGET_AD_ID) will be verified.
 """
 import os
 import sys
@@ -73,7 +73,7 @@ def reset_all_leads():
     print()
     print("=" * 70)
     print(f"  SUCCESS: {reset_count} lead(s) reset. AI will NOT reply to them.")
-    print(f"  Only users who text '0123456789' will re-enable AI.")
+    print(f"  Only users arriving from TARGET_AD_ID will enable AI.")
     print("=" * 70)
 
 
