@@ -40,7 +40,10 @@ from rag import ask_rag_async, stream_rag
 from redis_client import get_redis_connection
 from sales_followup import get_sales_followup
 from agent_summary import send_agent_summary_async
-from coupons import format_coupon_banner, get_all_coupon_codes, get_coupon_details
+from coupons import (
+    format_coupon_banner, get_all_coupon_codes, get_coupon_details,
+    detect_package_from_text, VALID_PACKAGES
+)
 import re
 
 
@@ -978,6 +981,12 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     )
 
     if should_send_coupon_now:
+        # Check if user specified a package in this turn (e.g. "6 months ka coupon", "1 year code")
+        detected_pkg = detect_package_from_text(text)
+        if detected_pkg:
+            state["package"] = detected_pkg
+            state["fee"] = VALID_PACKAGES[detected_pkg]
+
         reply = format_coupon_banner(
             state.get("package"),
             language="hindi" if has_hindi else "english",
@@ -995,6 +1004,11 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
         return
 
     elif _is_explicit_coupon_ask:
+        detected_pkg = detect_package_from_text(text)
+        if detected_pkg:
+            state["package"] = detected_pkg
+            state["fee"] = VALID_PACKAGES[detected_pkg]
+
         # Stage A: User has NOT selected timing/package or reached app links -> Explain unlock requirement with app links
         reply = (
             "Aapka special welcome discount coupon code app ya website par profile banane ke baad unlock hota hai 🎁\n\n"

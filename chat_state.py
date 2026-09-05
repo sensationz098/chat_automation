@@ -345,7 +345,7 @@ def is_user_asking_question(text: str) -> bool:
         
     return False
 
-from coupons import VALID_PACKAGES
+from coupons import VALID_PACKAGES, detect_package_from_text, normalize_package_name
 
 
 GREETING_WORDS = ["hi", "hii", "hello", "hey", "namaste", "good morning", "good evening", "good afternoon"]
@@ -742,7 +742,7 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
     # --- 0.5 Detect Intent to Change / Remove Slots ---
 
     change_kws = ["change", "remove", "galat", "wrong", "dusra", "delete", "nahi chahiye", "cancel"]
-    if any(kw in text_lower for kw in change_kws) and state["stage"] not in ["NEW", "PROFILE_COMPLETED", "COUPON_SENT"]:
+    if any(kw in text_lower for kw in change_kws) and state["stage"] != "NEW":
         changed = False
         if any(w in text_lower for w in ["timing", "time", "batch", "slot", "baje"]):
             state["timing"] = None
@@ -811,44 +811,46 @@ async def extract_and_update_slots(phone: str, text: str, chat_history: list = N
                 timing_found = True  # Prevents LLM fallback from executing and overriding ambiguous timings
 
     # --- 2. Detect Package / Duration Slot ---
-    # We allow package detection at any stage if the text contains clear indicators,
-    # or if the user is in a package selection stage (e.g. TIMING_SELECTED, PACKAGE_ASKED, PACKAGE_SELECTED).
-    is_package_stage = (state.get("timing") is not None or state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED"])
-
-    # Bare price numbers (700, 1750, etc.) must ONLY match when the user's message is very short
-    # (i.e., they actually typed just the number as a selection, not mentioned it inside a question/sentence).
-    _short_text = len(text_lower.strip()) <= 15
+    # Check if a package is mentioned in the text using robust pattern matching
+    detected_pkg = detect_package_from_text(text)
 
     is_package_detected = False
-    # Skip package detection entirely when user is asking a question — prevents
-    # sentences like "why it's started with 700" from being misread as a package selection.
-    if not is_q:
+    
+    # Check if this message is a coupon request with package specification (e.g. "6 months ka coupon")
+    is_coupon_pkg_request = bool(detected_pkg and any(w in text_lower for w in ["coupon", "code", "copon", "cupon", "kupon", "promo", "voucher"]))
+    
+    # Check if user expresses selection/intent (e.g. "3 m wala lunga mai", "6 months chahiye", "want 1 year")
+    is_selection_intent = bool(detected_pkg and any(w in text_lower for w in [
+        "chahiye", "lena", "krna", "karna", "lunga", "lungi", "le rha", "le raha",
+        "select", "choose", "want", "prefer", "wala", "wali", "change", "badal", "pack", "package"
+    ]))
+
+    # Allow package update if:
+    # 1. Not asking an informational question (standard selection), OR
+    # 2. Coupon request with a specific package (e.g. "6 months ka coupon"), OR
+    # 3. Explicit selection/preference expression (e.g. "3 m wala", "6 months chahiye")
+    if detected_pkg and (not is_q or is_coupon_pkg_request or is_selection_intent):
+        state["package"] = detected_pkg
+        state["fee"] = VALID_PACKAGES[detected_pkg]
+        is_package_detected = True
+    elif not is_q:
+        # Fallback for bare numbers in package stage
+        is_package_stage = (state.get("timing") is not None or state["stage"] in ["TIMING_SELECTED", "PACKAGE_ASKED", "PACKAGE_SELECTED"])
+        _short_text = len(text_lower.strip()) <= 15
         tokens = [w.strip(".,!?:;₹") for w in text_lower.replace(",", "").split()]
-        if (text_lower in ["12", "1 year", "1yr", "1y", "yearly", "annual", "1 saal"]
-                or any(p in text_lower for p in ["1 year", "12 month", "12 months", "₹5,000", "₹1,800", "₹1800", "₹5000", "₹3,850", "₹3850"])
-                or (_short_text and any(w in tokens for w in ["5000", "1800", "3850"]))
-                or (is_package_stage and text_lower in ["12", "twelve"])):
+        if _short_text and any(w in tokens for w in ["5000", "1800", "3850"]):
             state["package"] = "1 Year"
             state["fee"] = VALID_PACKAGES["1 Year"]
             is_package_detected = True
-        elif (text_lower in ["6", "6m", "6 month", "6 months", "half yearly", "6 mahine"]
-                or any(p in text_lower for p in ["6 month", "6 months", "₹3,200", "₹1,000", "₹1000", "₹3200", "₹2,050", "₹2050"])
-                or (_short_text and any(w in tokens for w in ["3200", "1000", "2050"]))
-                or (is_package_stage and text_lower in ["6", "six"])):
+        elif _short_text and any(w in tokens for w in ["3200", "1000", "2050"]):
             state["package"] = "6 Months"
             state["fee"] = VALID_PACKAGES["6 Months"]
             is_package_detected = True
-        elif (text_lower in ["3", "3m", "3 month", "3 months", "quarterly", "3 mahine"]
-                or any(p in text_lower for p in ["3 month", "3 months", "₹1,750", "₹1750", "₹600"])
-                or (_short_text and any(w in tokens for w in ["1750", "600"]))
-                or (is_package_stage and text_lower in ["3", "three"])):
+        elif _short_text and any(w in tokens for w in ["1750", "600"]):
             state["package"] = "3 Months"
             state["fee"] = VALID_PACKAGES["3 Months"]
             is_package_detected = True
-        elif (text_lower in ["1", "1m", "1 month", "one month", "monthly", "1 mahina"]
-                or any(p in text_lower for p in ["1 month", "₹700", "₹300", "₹300", "₹500"])
-                or (_short_text and any(w in tokens for w in ["700", "300", "500"]))
-                or (is_package_stage and text_lower in ["1", "one"])):
+        elif _short_text and any(w in tokens for w in ["700", "300", "500"]):
             state["package"] = "1 Month"
             state["fee"] = VALID_PACKAGES["1 Month"]
             is_package_detected = True

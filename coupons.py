@@ -14,28 +14,28 @@ COUPON_REGISTRY: Dict[str, Dict[str, Any]] = {
         "base_price": 700,
         "offer_price": 300,
         "currency": "₹",
-        "aliases": ["1 month", "1m", "1", "one month", "monthly", "1 mahina"],
+        "aliases": ["1 month", "1m", "one month", "monthly", "1 mahina", "yoga300"],
     },
     "3 Months": {
         "code": "YOGA600",
         "base_price": 1750,
         "offer_price": 600,
         "currency": "₹",
-        "aliases": ["3 months", "3 month", "3m", "3", "three months", "quarterly", "3 mahine"],
+        "aliases": ["3 months", "3 month", "3m", "three months", "quarterly", "3 mahine", "yoga600"],
     },
     "6 Months": {
         "code": "YOGA1000",
         "base_price": 3200,
         "offer_price": 1000,
         "currency": "₹",
-        "aliases": ["6 months", "6 month", "6m", "6", "six months", "half yearly", "6 mahine"],
+        "aliases": ["6 months", "6 month", "6m", "six months", "half yearly", "6 mahine", "yoga1000"],
     },
     "1 Year": {
         "code": "YOGA1800",
         "base_price": 5000,
         "offer_price": 1800,
         "currency": "₹",
-        "aliases": ["1 year", "12 months", "12 month", "1y", "1yr", "12", "yearly", "annual", "1 saal"],
+        "aliases": ["1 year", "12 months", "12 month", "1y", "1yr", "yearly", "annual", "1 saal", "12 mahine", "yoga1800"],
     },
 }
 
@@ -46,18 +46,65 @@ VALID_PACKAGES: Dict[str, str] = {
 }
 
 
-def normalize_package_name(text: str) -> Optional[str]:
-    """Finds the matching canonical package name from any string or alias."""
+def detect_package_from_text(text: Optional[str]) -> Optional[str]:
+    """
+    Robustly identifies a course package duration (1 Month, 3 Months, 6 Months, 1 Year)
+    from user text, handling English, Hinglish, slang, coupon requests, and price mentions.
+    Guards against misinterpreting class timings (e.g. '6:00 AM', '1:00 PM', '10:00 AM').
+    """
     if not text:
         return None
     t = text.strip().lower()
-    for canonical_name, data in COUPON_REGISTRY.items():
+
+    # 1. Check exact canonical match first
+    for canonical_name in COUPON_REGISTRY.keys():
         if t == canonical_name.lower():
             return canonical_name
-        for alias in data.get("aliases", []):
-            if t == alias or alias in t:
-                return canonical_name
+
+    # 2. Check 1 Year / 12 Months (Checked first to prevent '1' or '12' collision with '1 Month')
+    if re.search(r"\b(?:12\s*(?:months?|month|m|mahine?)|1\s*(?:year|yr|y|saal)|one\s*year|ek\s*saal|yearly|annual|yoga1800|₹\s*5,?000|₹\s*1,?800)\b", t):
+        return "1 Year"
+    if re.search(r"\b(?:5000|1800)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
+        return "1 Year"
+    if re.match(r"^(?:12|1y|1yr|1 year)$", t):
+        return "1 Year"
+
+    # 3. Check 6 Months
+    if re.search(r"\b(?:6\s*(?:months?|month|m|mahine?)|six\s*months?|half\s*yearly|yoga1000|₹\s*3,?200|₹\s*1,?000)\b", t):
+        return "6 Months"
+    if re.search(r"\b(?:3200|1000)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
+        return "6 Months"
+    if re.match(r"^(?:6|6m|6 month|6 months)$", t):
+        return "6 Months"
+
+    # 4. Check 3 Months
+    if re.search(r"\b(?:3\s*(?:months?|month|m|mahine?)|three\s*months?|quarterly|yoga600|₹\s*1,?750|₹\s*600)\b", t):
+        return "3 Months"
+    if re.search(r"\b(?:1750|600)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
+        return "3 Months"
+    if re.match(r"^(?:3|3m|3 month|3 months)$", t):
+        return "3 Months"
+
+    # 5. Check 1 Month
+    if re.search(r"\b(?:1\s*(?:months?|month|m|mahina)|one\s*month|monthly|yoga300|₹\s*700|₹\s*300)\b", t):
+        return "1 Month"
+    if re.search(r"\b(?:700|300)\s*(?:rs|rupees|ka|wali|wala|package|plan)?\b", t) and len(t) <= 25:
+        return "1 Month"
+    if re.match(r"^(?:1|1m|1 month)$", t):
+        return "1 Month"
+
     return None
+
+
+def normalize_package_name(text: Optional[str]) -> Optional[str]:
+    """Finds the matching canonical package name from any string, alias, or sentence."""
+    if not text:
+        return None
+    t = text.strip()
+    for canonical_name in COUPON_REGISTRY.keys():
+        if t.lower() == canonical_name.lower():
+            return canonical_name
+    return detect_package_from_text(t)
 
 
 def get_coupon_details(package_name: Optional[str]) -> Optional[Dict[str, Any]]:

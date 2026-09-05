@@ -75,6 +75,11 @@ Evening:
 - 7:00 PM to 8:00 PM
 Students may select any available batch based on their preference.
 
+Batch Timing Flexibility & Shifting Policy:
+- Timing Flexibility When Enrolling: Batch timings are completely flexible at the time of enrollment. Students have full flexibility to choose whichever morning, afternoon, or evening batch slot best fits their daily routine.
+- Once Enrolled: Classes are attended in the chosen batch slot (1 class per day).
+- Timing Change / Batch Shifting Request: After a student has enrolled, a batch shifting or timing change request can be made AFTER 1 MONTH OF ADMISSION ONLY. Batch timings cannot be switched or changed during the first month of enrollment.
+
 --- SECTION: INSTRUCTOR SCHEDULE ---
 Current batch-wise instructor assignments:
 - 5:00 AM to 6:00 AM  -> Jagriti
@@ -3518,10 +3523,16 @@ Q: Kya 600 rupees ke baad har mahine paise katenge?
 A: Nahi, bilkul nahi! Yeh ek baar ka final payment Rs. 600 hai 3 mahine ke liye (sirf Rs. 6 daily). Koi auto-debit ya monthly hidden charge nahi hai.
 
 Q: Can I change batch timing during the 3 months package?
-A: Yes! You can change your batch timing anytime between available morning, afternoon, or evening slots through the Sensationz App.
+A: At the time of enrollment, you have complete flexibility to choose any batch timing that suits you. After you have enrolled, a batch shifting or timing change request can be made after completing 1 month of admission only.
 
 Q: Kya 3 mahine ke dauran batch timing change kar sakte hain?
-A: Haan, aap Sensationz App ke through 3 months ke dauran kisi bhi available morning ya evening batch me timing shift kar sakte hain.
+A: Enrollment ke time timing choose karne ki poori flexibility hoti hai. Enroll hone ke baad, batch shifting ya timing change ki request sirf 1 mahine ka admission complete karne ke baad hi ki ja sakti hai.
+
+Q: Are timings flexible?
+A: Yes, batch timings are flexible when enrolling — you have complete flexibility to choose any available morning, afternoon, or evening slot that fits your schedule. However, once you have enrolled, a batch shifting or timing change request can be made after 1 month of admission only.
+
+Q: Kya timings flexible hain?
+A: Haan, enrollment ke time timings bilkul flexible hain — aap apni suvidha ke hisaab se koi bhi available slot choose kar sakte hain. Lekin enroll hone ke baad, batch shift ya timing change ki request sirf 1 mahina complete hone ke baad hi ki ja sakti hai.
 
 Q: Do You have offer in any package?
 A: Yes, we have special Welcome Offers for all Yoga packages: 1-Month at Rs. 300, 3-Month at Rs. 600 (Rs. 6/day), 6-Months at Rs. 1,000, and 1-Year at Rs. 1,800 using the welcome discount coupon.
@@ -3530,7 +3541,7 @@ Q: Do you have any offer in 3 months package?
 A: Under the Welcome Offer, 3 Months is available at Rs. 600 (Rs. 6/day) using the welcome discount coupon.
 
 Q: What if I miss a class or go on leave during 3 months?
-A: You can attend any alternate available batch on the same day, or pause your subscription in the app if you are traveling or on leave.
+A: Classes are conducted live and interactive from Monday to Friday. Only one class per day can be attended according to your selected batch timing. Leave or subscription pause is not available, and missed classes cannot be carried over.
 
 Q: If I pay 600 rupees, how many days will I get yoga classes?
 A: You will get 3 full months (90 days access) of live interactive classes conducted Monday to Friday (5 days a week) for just Rs. 6 per day — less than a cup of tea!
