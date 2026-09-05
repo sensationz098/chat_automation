@@ -597,15 +597,16 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
 
     # 3. Standalone past-action completion verbs (Hindi/Hinglish/English)
     # e.g. "bnali", "banali", "bna li", "bana li", "banadi", "bnadi", "kardi", "krdi", "kardiya", "ho gaya", "done", "created"
-    # Also covers informal present-perfect: "bna le hai", "kar le hai", "le liya hai"
+    # Also covers informal present-perfect: "bna le hai", "kar le hai", "le liya hai", "hgya h", "krdia na"
     STANDALONE_PAST_VERBS = [
         r"\b(bnali|banali|bna\s*li|bana\s*li|banadi|bnadi|bna\s*di|bana\s*di|bana\s*diya|bna\s*diya|bana\s*liya|banaliya|bna\s*liya|bnaliya)\b",
-        r"\b(kardi|krdi|kardiya|krdiya|kar\s*liya|kr\s*liya|karliya|krliya|karlia|krlia|kar\s*lia|kr\s*lia|kar\s*li|kr\s*li|karli|krli|kar\s*diya|kr\s*diya|kardia|krdia|kar\s*dia|kr\s*dia|kar\s*di|kr\s*di)\b",
-        r"\b(ho\s*gaya|hogaya|ho\s*gya|hogya|ban\s*gaya|bangaya|ban\s*gya|bangya|ban\s*gayi|bangayi|ban\s*gai|bangai)\b",
+        r"\b(kardi|krdi|kardiya|krdiya|kar\s*liya|kr\s*liya|karliya|krliya|karlia|krlia|kar\s*lia|kr\s*lia|kar\s*li|kr\s*li|karli|krli|kar\s*diya|kr\s*diya|kardia|krdia|kar\s*dia|kr\s*dia|kar\s*di|kr\s*di)\s*(?:na|ji|bhai|yaar|sir|mam)?\b",
+        r"\b(ho\s*gaya|hogaya|ho\s*gya|hogya|h\s*gaya|hgaya|h\s*gya|hgya|ban\s*gaya|bangaya|ban\s*gya|bangya|ban\s*gayi|bangayi|ban\s*gai|bangai)\b",
         r"\b(created|completed|registered|setup\s*done|all\s*done)\b",
-        # Informal present-perfect: "bna le hai", "bana le hai", "kar le hai", "kr le hai"
+        # Informal present-perfect: "bna le hai", "bana le hai", "kar le hai", "kr le hai", "hgya h"
         r"\b(bna|bana)\s*le\s*(hai|h|he)\b",
         r"\b(kar|kr)\s*le\s*(hai|h|he)\b",
+        r"\b(hgya|hogya|ho\s*gya|ho\s*gaya|krdia|krdiya|kar\s*diya|bna\s*li|banali)\s*(hai|h|he|na)\b",
         # "le liya hai", "le li hai" (have done it)
         r"\ble\s*(liya|li)\s*(hai|h|he)?\b",
     ]
@@ -644,7 +645,8 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         # Colloquial task/setup completions
         "krlia", "karliya", "krliya", "karlia", "kr lia", "kar lia",
         "krdiya", "kardiya", "krdia", "kardia", "kr dia", "kar dia", "karli", "krli",
-        "hogya", "hogaya", "ho gaya",
+        "hogya", "hogaya", "ho gaya", "hgya", "h gya", "h gaya", "hgaya",
+        "hgya h", "hogya h", "ho gya h", "krdia na", "krdiya na", "kar diya na", "kardiya na",
         "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
         "dono kaam", "dono kaam ho gaye", "dono kaam nipat gaye", "dono kaam nipat gya",
         "nipat gaya", "nipat gaye", "nipat gya", "nipta diya", "sab nipta diya",
@@ -676,14 +678,19 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
     current_stage = (state.get("stage") if state else "") or ""
     if current_stage in ["APP_LINK_SENT", "READY_FOR_APP_LINK"]:
         _AFFIRMATIVE_SIGNALS = [
-            "done", "yes", "haan", "haa", "han", "ji haan", "ji han", "bilkul",
-            "yes done", "haan done", "ok done", "done done", "kar diya", "kardiya",
-            "kr diya", "krdiya", "kar li", "krli", "ho gaya", "hogaya", "ho gya", "hogya",
-            "ban gaya", "bangaya", "ban gayi", "bangayi", "bnali", "banali", "bna li", "bana li",
-            "bna di", "banadi", "bnadi", "kardi", "krdi"
+            "done", "yes", "haan", "haa", "han", "hn", "ha", "ji haan", "ji han", "ji hn", "bilkul",
+            "yes done", "haan done", "hn done", "han done", "ok done", "done done", "kar diya", "kardiya",
+            "kr diya", "krdiya", "krdia", "kardia", "kr dia", "kar dia", "kar li", "krli", "ho gaya", "hogaya",
+            "ho gya", "hogya", "hgya", "h gya", "h gaya", "hgaya", "ban gaya", "bangaya", "ban gayi", "bangayi",
+            "bnali", "banali", "bna li", "bana li", "bna di", "banadi", "bnadi", "kardi", "krdi", "hnji", "hanji",
+            "krdia na", "krdiya na", "kar diya na", "kardiya na", "hgya h", "hogya h", "ho gya h", "hn hn hgya h"
         ]
         words = re.findall(r"\w+", t)
-        if any(w in words for w in ["done", "yes", "haan", "bilkul"]):
+        affirmative_words = {
+            "done", "yes", "haan", "han", "hn", "haa", "ha", "hnji", "hanji", "bilkul",
+            "hgya", "hogya", "krdia", "krdiya", "banali", "bnali", "banadi", "bnadi"
+        }
+        if any(w in affirmative_words for w in words):
             has_past_completion = True
         elif any(p in t for p in _AFFIRMATIVE_SIGNALS):
             has_past_completion = True
