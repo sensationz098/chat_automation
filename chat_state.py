@@ -277,7 +277,7 @@ def reset_user_state(phone: str) -> dict:
             supabase.table("escalated_chats").delete().eq("phone", phone).execute()
         except Exception as e:
             print(f"[chat_state] Supabase reset error for {phone}: {e}")
-    initial = initial_state(phone)
+    initial = get_default_state(phone)
     save_user_state(phone, initial)
     return initial
 
@@ -597,11 +597,17 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
 
     # 3. Standalone past-action completion verbs (Hindi/Hinglish/English)
     # e.g. "bnali", "banali", "bna li", "bana li", "banadi", "bnadi", "kardi", "krdi", "kardiya", "ho gaya", "done", "created"
+    # Also covers informal present-perfect: "bna le hai", "kar le hai", "le liya hai"
     STANDALONE_PAST_VERBS = [
         r"\b(bnali|banali|bna\s*li|bana\s*li|banadi|bnadi|bna\s*di|bana\s*di|bana\s*diya|bna\s*diya|bana\s*liya|banaliya|bna\s*liya|bnaliya)\b",
         r"\b(kardi|krdi|kardiya|krdiya|kar\s*li|kr\s*li|kar\s*diya|kr\s*diya)\b",
         r"\b(ho\s*gaya|hogaya|ho\s*gya|hogya|ban\s*gaya|bangaya|ban\s*gya|bangya|ban\s*gayi|bangayi|ban\s*gai|bangai)\b",
         r"\b(created|completed|registered|setup\s*done|all\s*done)\b",
+        # Informal present-perfect: "bna le hai", "bana le hai", "kar le hai", "kr le hai"
+        r"\b(bna|bana)\s*le\s*(hai|h|he)\b",
+        r"\b(kar|kr)\s*le\s*(hai|h|he)\b",
+        # "le liya hai", "le li hai" (have done it)
+        r"\ble\s*(liya|li)\s*(hai|h|he)?\b",
     ]
 
     # 4. Direct noun + past-verb semantic combinations
@@ -635,13 +641,23 @@ def is_profile_completed_signal(text: str, state: dict = None) -> bool:
         "profile bna li", "profile bnali", "profile banadi", "profile bnadi",
         "profile bna di", "profile bana di", "profile ready", "profile set",
         "account created", "account ban gaya", "account bana liya", "profile setup",
+        # Colloquial task/setup completions
         "both done", "sab ho gaya", "sab ho gya", "dono ho gaya", "dono ho gya",
+        "dono kaam", "dono kaam ho gaye", "dono kaam nipat gaye", "dono kaam nipat gya",
+        "nipat gaya", "nipat gaye", "nipat gya", "nipta diya", "sab nipta diya",
+        "kaam ho gaya", "kaam hogaya", "kaam khatam", "khatam kar diya", "finish kar diya",
         "download kar liya", "download kr liya", "install kar liya", "install kr liya",
         "app done", "downloaded", "installed", "app installed", "app downloaded",
         "setup done", "all done", "done profile created", "profile created done",
         "done created", "yes created", "id bana li", "id banali", "id ban gayi",
         "login kar liya", "login ho gaya", "signup kar liya", "sign up ho gaya",
         "registered", "registered on app", "profile is ready", "profile is done",
+        # Informal present-perfect (common Hindi/Hinglish)
+        "profile bna le hai", "profile bana le hai",
+        "profile bna le h", "profile bana le h",
+        "profile kar le hai", "profile kar le h",
+        "account bna le hai", "account bana le hai",
+        "sab kar le hai", "sab kar le h",
     ]
 
     has_past_completion = (

@@ -44,6 +44,7 @@ from coupons import (
     format_coupon_banner, get_all_coupon_codes, get_coupon_details,
     detect_package_from_text, VALID_PACKAGES
 )
+from intent_classifier import classify_coupon_and_profile_intent
 import re
 
 
@@ -563,11 +564,37 @@ def get_flow_followup(state: dict) -> str:
 
 from chat_state import arm_followup_timer, reset_follow_up_timer, reset_user_state_async, is_profile_completed_signal
 
+def is_coupon_info_question(text: str) -> bool:
+    """
+    Detects if the user is asking an informational or troubleshooting question ABOUT coupons
+    (e.g. GST, iPhone/iOS, validity, expiry, auto-debit, refund, terms, where/how to apply)
+    which should be answered by RAG rather than treated as a coupon code delivery command.
+    """
+    t = (text or "").lower().strip()
+    info_markers = [
+        "gst", "tax", "hidden", "extra",
+        "iphone", "ios", "apple",
+        "auto-debit", "auto debit", "har mahine", "katenge", "deduct", "renewal",
+        "refund", "cancel",
+        "validity", "expire", "expiry", "lifetime", "kab tak", "valid",
+        "cash", "offline",
+        "two coupons", "multiple", "ek se zyada", "transfer", "friend", "family",
+        "kahan apply", "where to apply", "where do i enter", "option nahi aa raha",
+        "kaise apply", "how to apply", "kaise lagate", "kaise lagega", "kese lagega", "how it works",
+        "without coupon", "bina coupon", "difference", "kitne ka padega",
+        "dance", "kathak", "other courses", "registration fee", "extra pay"
+    ]
+    return any(m in t for m in info_markers)
+
+
 def is_coupon_request(text: str) -> bool:
     """Detects if the user is asking to receive or see a coupon code (e.g. 'coupon', 'coupon bjhdo', 'code bhejo')."""
+    if is_coupon_info_question(text):
+        return False
+
     t = (text or "").lower().strip()
     words = re.findall(r"\w+", t)
-    coupon_words = ["coupon", "coupons", "copon", "cupon", "kupon"]
+    coupon_words = ["coupon", "coupons", "copon", "cupon", "kupon", "coupen", "copen", "copun", "kupan", "copan", "couopn", "coupn", "koupon", "koopon"]
     code_words = ["code", "promo", "voucher"]
     request_words = [
         "bhej", "bjh", "send", "do", "de", "dedo", "share", "give", "kahan", "kaha", "kha",
@@ -937,28 +964,39 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     # ── Deterministic Coupon Unlock, Resend & Profile Completion Handlers ────
     is_complaint_or_refund_msg = is_complaint_or_refund(text)
 
-    profile_just_completed = (not is_complaint_or_refund_msg) and is_profile_completed_signal(text, state)
+    # --- Hybrid Intent Classification (Regex Fast-Path + LLM Fallback) ---
+    # Step 1: Run regex detectors (fast, zero cost)
+    _regex_profile = (not is_complaint_or_refund_msg) and is_profile_completed_signal(text, state)
+    _regex_coupon = (not is_complaint_or_refund_msg) and is_coupon_request(text_lower)
+    _regex_coupon_info = is_coupon_info_question(text)
+
+    # Step 2: Hybrid classifier — uses regex result if available, else LLM fallback
+    _intent = await classify_coupon_and_profile_intent(
+        text, state,
+        regex_coupon_result=_regex_coupon,
+        regex_profile_result=_regex_profile,
+        regex_coupon_info_result=_regex_coupon_info,
+    )
+
+    profile_just_completed = (not is_complaint_or_refund_msg) and _intent["is_profile_done"]
     if profile_just_completed and not state.get("profile_created"):
         state["app_installed"] = True
         state["profile_created"] = True
         state["stage"] = advance_stage(state["stage"], "PROFILE_COMPLETED")
 
-    _is_explicit_coupon_ask = (not is_complaint_or_refund_msg) and is_coupon_request(text_lower)
+    _is_explicit_coupon_ask = (not is_complaint_or_refund_msg) and _intent["is_coupon_request"]
 
     hindi_markers = ["kya", "hai", "bhejo", "batao", "do", "kaha", "kha", "dobara", "phir", "fhrse", "mujhe", "konsa", "dega", "nhi", "nahi", "bhai", "dena"]
     has_hindi = any(w in text_lower for w in hindi_markers) or any("\u0900" <= ch <= "\u097F" for ch in text)
 
     is_frustrated_coupon_ask = (
         (not is_complaint_or_refund_msg)
-        and (
-            _is_explicit_coupon_ask
-            or any(phrase in text_lower for phrase in [
-                "coupon dega ya nahi", "coupon dega yaa nahi", "coupon dega ki nahi",
-                "coupon kyu nahi de raha", "coupon kyun nahi de raha", "kab doge coupon",
-                "code dega ya nahi", "code kyu nahi de raha", "fake coupon", "fraud coupon",
-                "dhokha coupon"
-            ])
-        )
+        and any(phrase in text_lower for phrase in [
+            "coupon dega ya nahi", "coupon dega yaa nahi", "coupon dega ki nahi",
+            "coupon kyu nahi de raha", "coupon kyun nahi de raha", "kab doge coupon",
+            "code dega ya nahi", "code kyu nahi de raha", "fake coupon", "fraud coupon",
+            "dhokha coupon"
+        ])
         and (
             state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK", "PROFILE_COMPLETED", "COUPON_SENT"]
             or state.get("profile_created")
@@ -969,12 +1007,13 @@ async def handle_ai_reply_async(phone: str, text: str, history: list, start_time
     is_info_or_doubt = is_q or is_info_intent(text)
 
     # Condition to trigger coupon delivery:
-    # 1. User specifically asked for coupon / code (_is_explicit_coupon_ask or is_frustrated_coupon_ask)
-    # 2. User just completed profile setup (profile_just_completed) AND is NOT asking an informational question/doubt
+    # 1. User specifically asked for coupon / code (_is_explicit_coupon_ask) AFTER profile is created
+    # 2. User is frustrated / demanding coupon (is_frustrated_coupon_ask)
+    # 3. User just completed profile setup (profile_just_completed) AND is NOT asking an informational question/doubt
     should_send_coupon_now = (
         (not is_complaint_or_refund_msg)
         and (
-            (_is_explicit_coupon_ask and (state.get("profile_created") or state.get("stage") in ["APP_LINK_SENT", "READY_FOR_APP_LINK", "PROFILE_COMPLETED", "COUPON_SENT"]))
+            (_is_explicit_coupon_ask and (state.get("profile_created") or state.get("stage") in ["PROFILE_COMPLETED", "COUPON_SENT"]))
             or is_frustrated_coupon_ask
             or (profile_just_completed and not is_info_or_doubt)
         )
